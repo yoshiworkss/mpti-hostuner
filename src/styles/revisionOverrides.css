@@ -1,0 +1,8 @@
+/*
+ * Revision 3.1 (Kaishan Audit — Q4):
+ * Hide View Cart shortcut in Header & Store Mega-Menu while logged out (Guest),
+ * keeping Sidebar Actions and Footer links visible per Figma Page FIX V6.
+ */
+html[data-auth-role='guest'] header a[href='/cart'] {
+  display: none;
+}
