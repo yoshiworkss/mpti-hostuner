@@ -1,8 +1,11 @@
 import type {
+  ActivityLog,
+  AnnouncementItem,
   ApiResponse,
   CartItem,
   HostingProduct,
   InvoiceRecord,
+  KnowledgebaseArticle,
   OrderRecord,
   StoreCategory,
   SupportTicketItem,
@@ -101,9 +104,19 @@ export interface CreateOrderApiPayload {
   includePpn11: boolean
 }
 
+export interface DomainCheckResult {
+  domain: string
+  available: boolean
+  tld: string
+  newPriceIdr: number
+  transferPriceIdr: number
+  renewalPriceIdr: number
+  note: string
+}
+
 /**
- * Typed REST API Endpoint Contract for Backend Handoff (Muhammad Hanif — Node.js + SQLite/PostgreSQL).
- * Matches 05_SRS (FR-01..FR-10) & 09_Skema_Database.sql (6 core tables + optional support endpoints).
+ * Typed REST API Endpoint Contract for Backend Handoff (Muhammad Hanif — Node.js + SQLite 3NF).
+ * Matches 05_SRS (FR-01..FR-10) & 02_BACKEND_API_AND_DATABASE_CONTRACT.md.
  */
 export const hostunerBackendApi = {
   auth: {
@@ -127,6 +140,10 @@ export const hostunerBackendApi = {
         categorySlug ? `/products?category=${encodeURIComponent(categorySlug)}` : '/products',
         { method: 'GET' }
       ),
+    checkDomain: (domain: string) =>
+      apiRequest<DomainCheckResult>(`/domain/check?domain=${encodeURIComponent(domain)}`, {
+        method: 'GET',
+      }),
   },
   orders: {
     listMyOrders: () => apiRequest<OrderRecord[]>('/orders/me', { method: 'GET' }),
@@ -145,6 +162,20 @@ export const hostunerBackendApi = {
       apiRequest<SupportTicketItem>('/tickets', {
         method: 'POST',
         body: payload instanceof FormData ? payload : JSON.stringify(payload),
+      }),
+  },
+  content: {
+    listAnnouncements: () => apiRequest<AnnouncementItem[]>('/announcements', { method: 'GET' }),
+    createAnnouncement: (payload: { title: string; body: string }) =>
+      apiRequest<AnnouncementItem>('/admin/announcements', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    listKbArticles: () => apiRequest<KnowledgebaseArticle[]>('/kb', { method: 'GET' }),
+    createKbArticle: (payload: { categorySlug: 'hosting' | 'vps'; title: string; content: string }) =>
+      apiRequest<KnowledgebaseArticle>('/admin/kb', {
+        method: 'POST',
+        body: JSON.stringify(payload),
       }),
   },
   admin: {
@@ -169,7 +200,9 @@ export const hostunerBackendApi = {
       ),
     deleteUser: (userId: number) =>
       apiRequest<null>(`/admin/users/${userId}`, { method: 'DELETE' }),
+    listInvoices: () => apiRequest<InvoiceRecord[]>('/admin/invoices', { method: 'GET' }),
     confirmInvoicePaid: (invoiceId: number) =>
       apiRequest<InvoiceRecord>(`/admin/invoices/${invoiceId}/pay`, { method: 'PATCH' }),
+    listLogs: () => apiRequest<ActivityLog[]>('/admin/logs', { method: 'GET' }),
   },
 }
