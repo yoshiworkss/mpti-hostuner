@@ -4,6 +4,7 @@ import { StoreSidebar } from '../components/layout/HybridSidebar'
 import { PageShell } from '../components/layout/PageShell'
 import { BreadcrumbBackBar, FieldError } from '../components/ui/FeedbackStates'
 import { useHostuner } from '../context/useHostuner'
+import { hostunerBackendApi, isBackendApiEnabled } from '../services/apiClient'
 import { STATIC_DOMAIN_TLDS } from '../services/hostunerApi'
 import type { BillingCycle } from '../types/hostuner'
 
@@ -54,12 +55,25 @@ export function OrderChooseDomainPage() {
     return existingDomain.trim().toLowerCase()
   }
 
-  function handleCheckDomain() {
-    const val = getActiveDomainInput()
+  async function handleCheckDomain() {
+    const val = getActiveDomainInput().replace(/^www\./, '')
     if (!val || !val.includes('.')) {
       setFormError('Masukkan nama domain lengkap beserta ekstensinya, contoh: namadomain.com.')
       setCheckedDomain(null)
       return
+    }
+    if (isBackendApiEnabled()) {
+      const res = await hostunerBackendApi.catalog.checkDomain(val)
+      if (!res.success || !res.data) {
+        setFormError(res.message)
+        setCheckedDomain(null)
+        return
+      }
+      if (!res.data.available && domainOption === 'register') {
+        setFormError(`Domain ${val} sudah terdaftar. Silakan gunakan nama domain lain atau pilih opsi Transfer/Existing.`)
+        setCheckedDomain(null)
+        return
+      }
     }
     setFormError(undefined)
     setCheckedDomain(val)

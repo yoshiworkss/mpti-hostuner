@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import { createApp } from '../src/app.js'
 import { closeDb, getDb } from '../src/config/db.js'
+import { assertProductionEnvSecurity } from '../src/config/env.js'
 import { runSeed } from '../src/db/seed.js'
 
 /**
  * End-to-End Automated Test Suite for Hostuner-25 Backend REST API.
  * Verifies all Priority 1 & Priority 2 endpoints, 3NF SQLite constraints,
+ * VPS hardening (trust proxy, production JWT_SECRET fail-fast),
  * camelCase DTO contracts, and HTTP status codes (200/201/400/401/403/404/409/422).
  */
 async function runAllTests() {
@@ -28,14 +30,21 @@ async function runAllTests() {
 
   async function request(path, { method = 'GET', body, cookie, origin } = {}) {
     const headers = {}
-    if (body !== undefined) headers['Content-Type'] = 'application/json'
+    if (body !== undefined && !(body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json'
+    }
     if (cookie) headers['Cookie'] = cookie
     if (origin) headers['Origin'] = origin
 
     const res = await fetch(`${BASE}${path}`, {
       method,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body:
+        body === undefined
+          ? undefined
+          : body instanceof FormData
+            ? body
+            : JSON.stringify(body),
     })
 
     const setCookieHeader = res.headers.get('set-cookie') || ''
@@ -45,17 +54,32 @@ async function runAllTests() {
   }
 
   try {
-    // 1. Healthcheck & CORS Policy
+    // 0. VPS Hardening Checks (Production Fail-Fast JWT_SECRET & Trust Proxy)
+    {
+      assert.throws(() => {
+        assertProductionEnvSecurity('production', 'replace-with-strong-random-jwt-secret-in-production')
+      }, /FATAL SECURITY/)
+      assert.throws(() => {
+        assertProductionEnvSecurity('production', '')
+      }, /FATAL SECURITY/)
+      assert.doesNotThrow(() => {
+        assertProductionEnvSecurity('production', 'strong-production-random-secret-99887766')
+      })
+      recordPass('VPS Hardening: assertProductionEnvSecurity rejects default/empty JWT_SECRET in production')
+    }
+
+    // 1. Healthcheck, Trust Proxy & CORS Policy
     {
       const res = await request('/health', { origin: 'https://mpti-hostuner.vercel.app' })
       assert.equal(res.status, 200)
       assert.equal(res.json.success, true)
+      assert.equal(res.json.data.trustProxy, true)
       assert.equal(res.json.data.paymentMethod, 'qris-statis')
       assert.equal(res.json.data.ppnRatePercent, 11)
       assert.equal(res.json.data.uniqueVerificationCodeIdr, 128)
       assert.equal(res.headers.get('access-control-allow-origin'), 'https://mpti-hostuner.vercel.app')
       assert.equal(res.headers.get('access-control-allow-credentials'), 'true')
-      recordPass('GET /api/health & CORS whitelist (https://mpti-hostuner.vercel.app) -> 200')
+      recordPass('GET /api/health (trustProxy: true) & CORS whitelist (https://mpti-hostuner.vercel.app) -> 200')
 
       const badCors = await request('/health', { origin: 'https://evil-attacker.example.com' })
       assert.equal(badCors.status, 403)
@@ -63,7 +87,7 @@ async function runAllTests() {
       recordPass('CORS rejects non-whitelisted origin -> 403')
     }
 
-    // 2. Public Catalog (9 Categories, 15 Real Products, Domain Checker)
+    // 2. Public Catalog (9 Categories, 15 Real Products, Domain Checker, Contact Us)
     {
       const catRes = await request('/categories')
       assert.equal(catRes.status, 200)
@@ -106,6 +130,18 @@ async function runAllTests() {
       assert.equal(domInvalid.status, 422)
       assert.equal(domInvalid.json.success, false)
       recordPass('GET /api/domain/check (invalid domain format) -> 422')
+
+      const contactOk = await request('/contact', {
+        method: 'POST',
+        body: {
+          name: 'Calon Pelanggan UNS',
+          email: 'calon@uns.ac.id',
+          subject: 'Pertanyaan Paket Sekolah',
+          message: 'Apakah gratis domain .sch.id sudah termasuk aktivasi?',
+        },
+      })
+      assert.equal(contactOk.status, 201)
+      recordPass('POST /api/contact stores pre-sales contact inquiry -> 201')
     }
 
     // 3. Authentication, Turnstile Verification & Password Hashing
@@ -316,7 +352,7 @@ async function runAllTests() {
       recordPass('POST /api/orders succeeds for Domain-Only order (order_items.product_id = NULL) -> 201')
     }
 
-    // 6. Support Tickets (`requireAuth` on GET /api/tickets/me and POST /api/tickets)
+    // 6. Support Tickets (`requireAuth` on GET /api/tickets/me and POST /api/tickets, JSON & FormData)
     {
       const guestTickets = await request('/tickets/me')
       assert.equal(guestTickets.status, 401)
@@ -331,19 +367,22 @@ async function runAllTests() {
       assert.equal(guestPostTicket.status, 401)
       recordPass('GET /api/tickets/me & POST /api/tickets reject Guest (requireAuth) -> 401')
 
+      const formData = new FormData()
+      formData.append('department', 'Konfirmasi Pembayaran')
+      formData.append('subject', 'Bukti Scan QRIS INV-2026-0892 (FormData)')
+      formData.append('message', 'Sudah transfer Rp 399.728 via QRIS Statis Hostuner.')
+      formData.append('invoiceNumber', 'INV-2026-0892')
+      const fakePngBlob = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' })
+      formData.append('attachment', fakePngBlob, 'bukti-qris.png')
+
       const budiCreateTicket = await request('/tickets', {
         method: 'POST',
         cookie: budiCookie,
-        body: {
-          department: 'Konfirmasi Pembayaran',
-          subject: 'Bukti Scan QRIS INV-2026-0892',
-          message: 'Sudah transfer Rp 399.728 via QRIS Statis Hostuner.',
-          invoiceNumber: 'INV-2026-0892',
-        },
+        body: formData,
       })
       assert.equal(budiCreateTicket.status, 201)
       assert.equal(budiCreateTicket.json.data.userEmail, 'budi@sman1solo.sch.id')
-      recordPass('POST /api/tickets creates ticket for authenticated customer -> 201')
+      recordPass('POST /api/tickets (multipart/form-data file upload) creates ticket for authenticated customer -> 201')
     }
 
     // 7. Admin Portal Guard, CRUD Product, CRUD User, Self-Delete Guard & UC-08 Atomic Confirm Paid

@@ -8,7 +8,7 @@ export interface RevisionCartContextValue {
   pendingAuthItem: PendingAuthItem | null
   startReviewFromCartSelection: (selectedIds: string[]) => void
   moveReviewDraftToCart: () => void
-  createOrderForReviewItems: () => ApiResponse<InvoiceRecord>
+  createOrderForReviewItems: () => Promise<ApiResponse<InvoiceRecord>>
   clearPendingAuthItem: () => void
 }
 

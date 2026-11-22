@@ -6,6 +6,7 @@ import { PageShell } from '../components/layout/PageShell'
 import { RestrictedPageGate } from '../components/support/RestrictedPageGate'
 import { BreadcrumbBackBar, ConfirmModal, FieldError } from '../components/ui/FeedbackStates'
 import { useHostuner } from '../context/useHostuner'
+import { hostunerBackendApi, isBackendApiEnabled } from '../services/apiClient'
 import { STATIC_SERVER_NODES } from '../services/hostunerApi'
 import type { SupportTicketItem } from '../types/hostuner'
 
@@ -462,6 +463,8 @@ export function OpenTicketPage() {
   )
   const [message, setMessage] = useState('')
   const [attachmentName, setAttachmentName] = useState<string>('')
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [errors, setErrors] = useState<Record<string, string | undefined>>({})
   const [createdTicketNumber, setCreatedTicketNumber] = useState<string | null>(null)
 
@@ -496,8 +499,9 @@ export function OpenTicketPage() {
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }))
   }
 
-  function handleTicketSubmit(e: React.FormEvent) {
+  async function handleTicketSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (isSubmitting) return
     const next: Record<string, string | undefined> = {}
 
     if (!name.trim()) next.name = 'Nama pengirim wajib diisi.'
@@ -514,17 +518,25 @@ export function OpenTicketPage() {
       ? `${message.trim()}\n[Lampiran: ${attachmentName}]`
       : message.trim()
 
-    const res = submitTicket({
-      department,
-      subject: subject.trim(),
-      message: fullMessage,
-      invoiceNumber: invoiceNumber.trim() || undefined,
-      userEmail: email.trim().toLowerCase(),
-    })
+    setIsSubmitting(true)
+    try {
+      const res = await submitTicket({
+        department,
+        subject: subject.trim(),
+        message: fullMessage,
+        invoiceNumber: invoiceNumber.trim() || undefined,
+        userEmail: email.trim().toLowerCase(),
+        attachmentFile,
+      })
 
-    if (res.success && res.data) {
-      setCreatedTicketNumber(res.data.ticketNumber)
-      setErrors({})
+      if (res.success && res.data) {
+        setCreatedTicketNumber(res.data.ticketNumber)
+        setErrors({})
+      } else if (!res.success) {
+        setErrors(res.errors ?? { message: res.message })
+      }
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -579,6 +591,7 @@ export function OpenTicketPage() {
                 setSubject('')
                 setMessage('')
                 setAttachmentName('')
+                setAttachmentFile(null)
               }}
               className="rounded-full border border-border-soft bg-white px-5 py-2.5 text-[13px] font-semibold text-teal"
             >
@@ -709,7 +722,8 @@ export function OpenTicketPage() {
                   accept=".jpg,.jpeg,.png,.pdf"
                   className="sr-only"
                   onChange={(e) => {
-                    const file = e.target.files?.[0]
+                    const file = e.target.files?.[0] ?? null
+                    setAttachmentFile(file)
                     setAttachmentName(file ? file.name : '')
                   }}
                 />
@@ -722,9 +736,10 @@ export function OpenTicketPage() {
 
           <button
             type="submit"
-            className="rounded-full bg-teal px-8 py-3 text-[14px] font-semibold text-white transition-opacity hover:opacity-90"
+            disabled={isSubmitting}
+            className="rounded-full bg-teal px-8 py-3 text-[14px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
           >
-            Submit Ticket
+            {isSubmitting ? 'Mengirim Tiket...' : 'Submit Ticket'}
           </button>
         </form>
       )}
@@ -743,6 +758,7 @@ export function ContactUsPage() {
   const [email, setEmail] = useState(currentUser?.email ?? '')
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [errors, setErrors] = useState<Record<string, string | undefined>>({})
   const [sent, setSent] = useState(false)
 
@@ -750,8 +766,9 @@ export function ContactUsPage() {
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }))
   }
 
-  function handleContactSubmit(e: React.FormEvent) {
+  async function handleContactSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (isSubmitting) return
     const next: Record<string, string | undefined> = {}
 
     if (!name.trim()) next.name = 'Nama Anda wajib diisi.'
@@ -764,9 +781,26 @@ export function ContactUsPage() {
       return
     }
 
-    setErrors({})
-    setSent(true)
-    showToast('Pesan pra-penjualan Anda berhasil dikirim ke tim Hostuner!')
+    setIsSubmitting(true)
+    try {
+      if (isBackendApiEnabled()) {
+        const res = await hostunerBackendApi.content.sendContactMessage({
+          name: name.trim(),
+          email: email.trim(),
+          subject: subject.trim(),
+          message: message.trim(),
+        })
+        if (!res.success) {
+          showToast(res.message, 'error')
+          return
+        }
+      }
+      setErrors({})
+      setSent(true)
+      showToast('Pesan pra-penjualan Anda berhasil dikirim ke tim Hostuner!')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (

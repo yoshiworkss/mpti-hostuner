@@ -61,9 +61,10 @@ function appendRevisionLog(
 }
 
 /**
- * Revision 3.1 + Backend REST API Integrated Provider (`WBS 2.17`):
- * - Preserves synchronous `HostunerContext` & `RevisionCartContext` signatures so all 42 UI components work without breaking changes.
- * - When `VITE_API_BASE_URL` is configured (`isBackendApiEnabled() === true`), synchronizes catalog, auth cookies, orders, invoices, tickets, and admin CRUD with the Node.js + SQLite 3NF Backend.
+ * Revision 3.2 + Backend REST API Integrated Provider (`WBS 2.17`):
+ * - All mutation methods return `Promise<ApiResponse<T>>` and await Backend responses BEFORE mutating auth/order/admin state.
+ * - Prevents false optimistic login on HTTP 401/403/409/422.
+ * - Automatically resets `activeUserId` to `null` if `/api/auth/me` returns HTTP 401 on bootstrap.
  * - Falls back cleanly to `localStorage` when `VITE_API_BASE_URL` is empty.
  */
 export function HostunerRevisionProvider({ children }: { children: ReactNode }) {
@@ -101,98 +102,6 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
       setToasts((prev) => prev.filter((t) => t.id !== id))
     }, 3600)
   }, [])
-
-  const syncUserAndAdminDataFromBackend = useCallback(async (user: UserAccount) => {
-    if (!isBackendApiEnabled()) return
-    const [ordersRes, invoicesRes, ticketsRes] = await Promise.all([
-      hostunerBackendApi.orders.listMyOrders(),
-      hostunerBackendApi.orders.listMyInvoices(),
-      hostunerBackendApi.tickets.listMyTickets(),
-    ])
-
-    let adminUsers: UserAccount[] | null = null
-    let adminInvoices: InvoiceRecord[] | null = null
-    let adminLogs = null
-
-    if (user.role === 'admin') {
-      const [uRes, iRes, lRes] = await Promise.all([
-        hostunerBackendApi.admin.listUsers(),
-        hostunerBackendApi.admin.listInvoices(),
-        hostunerBackendApi.admin.listLogs(),
-      ])
-      if (uRes.success && uRes.data) adminUsers = uRes.data
-      if (iRes.success && iRes.data) adminInvoices = iRes.data
-      if (lRes.success && lRes.data) adminLogs = lRes.data
-    }
-
-    setRevState((prev) => {
-      const mergedUsers = adminUsers
-        ? adminUsers
-        : prev.users.some((u) => u.id === user.id)
-          ? prev.users.map((u) => (u.id === user.id ? user : u))
-          : [...prev.users, user]
-
-      return {
-        ...prev,
-        users: mergedUsers,
-        activeUserId: user.id,
-        orders: ordersRes.success && ordersRes.data ? ordersRes.data : prev.orders,
-        invoices:
-          adminInvoices ??
-          (invoicesRes.success && invoicesRes.data ? invoicesRes.data : prev.invoices),
-        tickets: ticketsRes.success && ticketsRes.data ? ticketsRes.data : prev.tickets,
-        logs: adminLogs ?? prev.logs,
-      }
-    })
-  }, [])
-
-  // Bootstrap catalog, content, and active HttpOnly cookie session from Backend on initial load
-  useEffect(() => {
-    if (!isBackendApiEnabled()) return
-    let active = true
-
-    async function bootstrapFromBackend() {
-      const [catRes, prodRes, annRes, kbRes, meRes] = await Promise.all([
-        hostunerBackendApi.catalog.listCategories(),
-        hostunerBackendApi.catalog.listProducts(),
-        hostunerBackendApi.content.listAnnouncements(),
-        hostunerBackendApi.content.listKbArticles(),
-        hostunerBackendApi.auth.me(),
-      ])
-
-      if (!active) return
-
-      setRevState((prev) => ({
-        ...prev,
-        categories: catRes.success && catRes.data?.length ? catRes.data : prev.categories,
-        products: prodRes.success && prodRes.data?.length ? prodRes.data : prev.products,
-        announcements: annRes.success && annRes.data?.length ? annRes.data : prev.announcements,
-        kbArticles: kbRes.success && kbRes.data?.length ? kbRes.data : prev.kbArticles,
-      }))
-
-      if (meRes.success && meRes.data) {
-        await syncUserAndAdminDataFromBackend(meRes.data)
-      }
-    }
-
-    void bootstrapFromBackend()
-    return () => {
-      active = false
-    }
-  }, [syncUserAndAdminDataFromBackend])
-
-  function setCurrency(currency: CurrencyCode) {
-    setRevState((prev) => ({ ...prev, currency }))
-    showToast(`Mata uang diubah ke ${currency === 'IDR' ? 'IDR (Rp)' : 'USD ($)'}`, 'info')
-  }
-
-  function setIncludePpn11(includePpn11: boolean) {
-    setRevState((prev) => ({ ...prev, includePpn11 }))
-  }
-
-  function formatPrice(amountIdr: number): string {
-    return formatMoney(amountIdr, revState.currency)
-  }
 
   function applyPendingItemAfterAuth(
     prev: RevisionPersistedState,
@@ -234,12 +143,132 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
     }
   }
 
-  function loginUser(
+  const syncUserAndAdminDataFromBackend = useCallback(
+    async (user: UserAccount, applyPending = false) => {
+      if (!isBackendApiEnabled()) return
+      const [ordersRes, invoicesRes, ticketsRes] = await Promise.all([
+        hostunerBackendApi.orders.listMyOrders(),
+        hostunerBackendApi.orders.listMyInvoices(),
+        hostunerBackendApi.tickets.listMyTickets(),
+      ])
+
+      let adminUsers: UserAccount[] | null = null
+      let adminInvoices: InvoiceRecord[] | null = null
+      let adminLogs = null
+
+      if (user.role === 'admin') {
+        const [uRes, iRes, lRes] = await Promise.all([
+          hostunerBackendApi.admin.listUsers(),
+          hostunerBackendApi.admin.listInvoices(),
+          hostunerBackendApi.admin.listLogs(),
+        ])
+        if (uRes.success && uRes.data) adminUsers = uRes.data
+        if (iRes.success && iRes.data) adminInvoices = iRes.data
+        if (lRes.success && lRes.data) adminLogs = lRes.data
+      }
+
+      setRevState((prev) => {
+        const mergedPending = applyPending ? applyPendingItemAfterAuth(prev, user.id) : null
+        const mergedUsers = adminUsers
+          ? adminUsers
+          : prev.users.some((u) => u.id === user.id)
+            ? prev.users.map((u) => (u.id === user.id ? user : u))
+            : [...prev.users, user]
+
+        return {
+          ...prev,
+          ...(mergedPending ?? {}),
+          users: mergedUsers,
+          activeUserId: user.id,
+          orders: ordersRes.success && ordersRes.data ? ordersRes.data : prev.orders,
+          invoices:
+            adminInvoices ??
+            (invoicesRes.success && invoicesRes.data ? invoicesRes.data : prev.invoices),
+          tickets: ticketsRes.success && ticketsRes.data ? ticketsRes.data : prev.tickets,
+          logs: adminLogs ?? prev.logs,
+        }
+      })
+    },
+    []
+  )
+
+  // Bootstrap catalog, content, and active HttpOnly cookie session from Backend on initial load
+  useEffect(() => {
+    if (!isBackendApiEnabled()) return
+    let active = true
+
+    async function bootstrapFromBackend() {
+      const [catRes, prodRes, annRes, kbRes, meRes] = await Promise.all([
+        hostunerBackendApi.catalog.listCategories(),
+        hostunerBackendApi.catalog.listProducts(),
+        hostunerBackendApi.content.listAnnouncements(),
+        hostunerBackendApi.content.listKbArticles(),
+        hostunerBackendApi.auth.me(),
+      ])
+
+      if (!active) return
+
+      setRevState((prev) => ({
+        ...prev,
+        categories: catRes.success && catRes.data?.length ? catRes.data : prev.categories,
+        products: prodRes.success && prodRes.data?.length ? prodRes.data : prev.products,
+        announcements: annRes.success && annRes.data?.length ? annRes.data : prev.announcements,
+        kbArticles: kbRes.success && kbRes.data?.length ? kbRes.data : prev.kbArticles,
+        // Reset stale localStorage activeUserId to null if Backend session is unauthenticated (401/403)
+        activeUserId: meRes.success && meRes.data ? meRes.data.id : null,
+      }))
+
+      if (meRes.success && meRes.data) {
+        await syncUserAndAdminDataFromBackend(meRes.data, false)
+      }
+    }
+
+    void bootstrapFromBackend()
+    return () => {
+      active = false
+    }
+  }, [syncUserAndAdminDataFromBackend])
+
+  function setCurrency(currency: CurrencyCode) {
+    setRevState((prev) => ({ ...prev, currency }))
+    showToast(`Mata uang diubah ke ${currency === 'IDR' ? 'IDR (Rp)' : 'USD ($)'}`, 'info')
+  }
+
+  function setIncludePpn11(includePpn11: boolean) {
+    setRevState((prev) => ({ ...prev, includePpn11 }))
+  }
+
+  function formatPrice(amountIdr: number): string {
+    return formatMoney(amountIdr, revState.currency)
+  }
+
+  async function loginUser(
     email: string,
     roleHint?: 'customer' | 'admin',
     options?: { password?: string; turnstileToken?: string }
-  ): ApiResponse<UserAccount> {
+  ): Promise<ApiResponse<UserAccount>> {
     const cleanEmail = email.trim().toLowerCase()
+
+    if (isBackendApiEnabled()) {
+      const res = await hostunerBackendApi.auth.login({
+        email: cleanEmail,
+        password: options?.password ?? '',
+        roleHint,
+        turnstileToken: options?.turnstileToken,
+      })
+
+      if (!res.success || !res.data) {
+        showToast(res.message, 'error')
+        return res
+      }
+
+      const serverUser = res.data
+      await syncUserAndAdminDataFromBackend(serverUser, true)
+      showToast(`Selamat datang, ${serverUser.name}!`)
+      return okResponse('Login berhasil.', serverUser)
+    }
+
+    // Fallback localStorage mode (when VITE_API_BASE_URL is empty)
     const matched =
       revState.users.find((u) => u.email.toLowerCase() === cleanEmail) ??
       revState.users.find((u) => u.role === (roleHint ?? 'customer')) ??
@@ -247,6 +276,16 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
 
     if (!matched) {
       return errorResponse('Akun tidak ditemukan.', { email: 'Email tidak terdaftar.' })
+    }
+    if (roleHint === 'admin' && matched.role !== 'admin') {
+      return errorResponse('Akun ini tidak memiliki hak akses Administrator.', {
+        email: 'Bukan akun Administrator.',
+      })
+    }
+    if (matched.status === 'SUSPENDED') {
+      return errorResponse('Akun ini sedang berstatus SUSPENDED.', {
+        email: 'Akun berstatus SUSPENDED.',
+      })
     }
 
     setRevState((prev) => {
@@ -264,36 +303,24 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
       }
     })
     showToast(`Selamat datang, ${matched.name}!`)
-
-    if (isBackendApiEnabled()) {
-      void hostunerBackendApi.auth
-        .login({
-          email: matched.email,
-          password: options?.password || 'Hostuner25!',
-          roleHint,
-          turnstileToken: options?.turnstileToken,
-        })
-        .then((res) => {
-          if (res.success && res.data) {
-            void syncUserAndAdminDataFromBackend(res.data)
-          } else if (!res.success) {
-            showToast(res.message, 'error')
-          }
-        })
-    }
-
     return okResponse('Login berhasil.', matched)
   }
 
   function loginAsDemoCustomer() {
-    loginUser('budi@sman1solo.sch.id', 'customer', { password: 'Hostuner25!' })
+    void loginUser('budi@sman1solo.sch.id', 'customer', {
+      password: 'Hostuner25!',
+      turnstileToken: 'turnstile-local-verified',
+    })
   }
 
   function loginAsDemoAdmin() {
-    loginUser('admin@hostuner.com', 'admin', { password: 'Hostuner25!' })
+    void loginUser('admin@hostuner.com', 'admin', {
+      password: 'Hostuner25!',
+      turnstileToken: 'turnstile-local-verified',
+    })
   }
 
-  function registerCustomer(payload: {
+  async function registerCustomer(payload: {
     name: string
     email: string
     password?: string
@@ -304,14 +331,39 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
     postcode?: string
     country?: string
     turnstileToken?: string
-  }): ApiResponse<UserAccount> {
+  }): Promise<ApiResponse<UserAccount>> {
+    if (isBackendApiEnabled()) {
+      const res = await hostunerBackendApi.auth.register({
+        name: payload.name.trim(),
+        email: payload.email.trim(),
+        password: payload.password ?? '',
+        phone: payload.phone.trim(),
+        company: payload.company?.trim(),
+        address: payload.address?.trim(),
+        city: payload.city?.trim(),
+        postcode: payload.postcode?.trim(),
+        country: payload.country?.trim() || 'Indonesia',
+        turnstileToken: payload.turnstileToken,
+      })
+
+      if (!res.success || !res.data) {
+        showToast(res.message, 'error')
+        return res
+      }
+
+      const serverUser = res.data
+      await syncUserAndAdminDataFromBackend(serverUser, true)
+      showToast(`Pendaftaran berhasil! Selamat datang, ${serverUser.name}.`)
+      return okResponse('Registrasi berhasil.', serverUser)
+    }
+
+    // Fallback localStorage mode
     if (revState.users.some((u) => u.email.toLowerCase() === payload.email.trim().toLowerCase())) {
       return errorResponse('Email sudah terdaftar.', { email: 'Gunakan email lain.' })
     }
 
-    const tempId = Date.now()
     const newUser: UserAccount = {
-      id: tempId,
+      id: Date.now(),
       name: payload.name.trim(),
       email: payload.email.trim(),
       phone: payload.phone.trim(),
@@ -341,36 +393,6 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
       }
     })
     showToast(`Pendaftaran berhasil! Selamat datang, ${newUser.name}.`)
-
-    if (isBackendApiEnabled()) {
-      void hostunerBackendApi.auth
-        .register({
-          name: newUser.name,
-          email: newUser.email,
-          password: payload.password || 'Hostuner25!',
-          phone: newUser.phone,
-          company: newUser.company,
-          address: newUser.address,
-          city: newUser.city,
-          postcode: newUser.postcode,
-          country: newUser.country,
-          turnstileToken: payload.turnstileToken,
-        })
-        .then((res) => {
-          if (res.success && res.data) {
-            const serverUser = res.data
-            setRevState((prev) => ({
-              ...prev,
-              users: prev.users.map((u) => (u.id === tempId ? serverUser : u)),
-              activeUserId: serverUser.id,
-            }))
-            void syncUserAndAdminDataFromBackend(serverUser)
-          } else if (!res.success) {
-            showToast(res.message, 'error')
-          }
-        })
-    }
-
     return okResponse('Registrasi berhasil.', newUser)
   }
 
@@ -502,7 +524,10 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
     showToast('Paket berhasil disimpan ke Shopping Cart.')
   }
 
-  function createOrderForItems(itemsToOrder: CartItem[], removeFromCartAfter: boolean): ApiResponse<InvoiceRecord> {
+  async function createOrderForItems(
+    itemsToOrder: CartItem[],
+    removeFromCartAfter: boolean
+  ): Promise<ApiResponse<InvoiceRecord>> {
     if (!currentUser || !userCartKey) {
       return errorResponse('Silakan login terlebih dahulu sebelum menyelesaikan checkout.')
     }
@@ -510,17 +535,55 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
       return errorResponse('Tidak ada item terpilih untuk dibayar.')
     }
 
+    const checkedOutIds = new Set(itemsToOrder.map((i) => i.id))
+
+    if (isBackendApiEnabled()) {
+      const res = await hostunerBackendApi.orders.createOrder({
+        items: itemsToOrder,
+        paymentMethodId: 'qris-statis',
+        includePpn11: true,
+      })
+
+      if (!res.success || !res.data) {
+        showToast(res.message, 'error')
+        return res
+      }
+
+      const srvInv = res.data
+      const ordersRes = await hostunerBackendApi.orders.listMyOrders()
+
+      setRevState((prev) => {
+        const existingCart = prev.cartsByUserId[userCartKey] ?? []
+        return {
+          ...prev,
+          orders: ordersRes.success && ordersRes.data ? ordersRes.data : prev.orders,
+          invoices: [srvInv, ...prev.invoices.filter((i) => i.id !== srvInv.id)],
+          cartsByUserId: removeFromCartAfter
+            ? {
+                ...prev.cartsByUserId,
+                [userCartKey]: existingCart.filter((c) => !checkedOutIds.has(c.id)),
+              }
+            : prev.cartsByUserId,
+          checkoutDraft: removeFromCartAfter ? prev.checkoutDraft : [],
+          reviewSelectedCartIds: removeFromCartAfter ? [] : prev.reviewSelectedCartIds,
+        }
+      })
+
+      showToast(`Pesanan dibuat! Nomor Invoice: ${srvInv.invoiceNumber}`)
+      return okResponse('Invoice berhasil diterbitkan.', srvInv)
+    }
+
+    // Fallback localStorage mode
     const pm = STATIC_QRIS_PAYMENT_METHOD
     const breakdown = calculateBillingBreakdown(itemsToOrder, revState.includePpn11, 128)
     const nowTag = new Date().toISOString().slice(0, 10).replaceAll('-', '')
-    const seq = String(revState.orders.length + 101).padStart(4, '0')
-    const tempOrderId = Date.now()
-    const tempInvoiceId = tempOrderId + 1
+    const seq = String(revState.orders.length + 1).padStart(4, '0')
+    const orderId = Date.now()
     const orderNumber = `ORD-${nowTag}-${seq}`
     const invoiceNumber = `INV-${nowTag}-${seq}`
 
     const order: OrderRecord = {
-      id: tempOrderId,
+      id: orderId,
       userId: currentUser.id,
       customerName: currentUser.name,
       orderNumber,
@@ -531,8 +594,8 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
     }
 
     const invoice: InvoiceRecord = {
-      id: tempInvoiceId,
-      orderId: tempOrderId,
+      id: orderId + 1,
+      orderId,
       invoiceNumber,
       customerName: currentUser.name,
       customerEmail: currentUser.email,
@@ -547,8 +610,6 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
       paidAt: null,
       createdAt: getNowTimestamp(),
     }
-
-    const checkedOutIds = new Set(itemsToOrder.map((i) => i.id))
 
     setRevState((prev) => {
       const existingCart = prev.cartsByUserId[userCartKey] ?? []
@@ -573,43 +634,14 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
       }
     })
     showToast(`Pesanan dibuat! Nomor Invoice: ${invoiceNumber}`)
-
-    if (isBackendApiEnabled()) {
-      void hostunerBackendApi.orders
-        .createOrder({
-          items: itemsToOrder,
-          paymentMethodId: 'qris-statis',
-          includePpn11: true,
-        })
-        .then((res) => {
-          if (res.success && res.data) {
-            const srvInv = res.data
-            setRevState((prev) => ({
-              ...prev,
-              invoices: prev.invoices.map((inv) => (inv.id === tempInvoiceId ? srvInv : inv)),
-              orders: prev.orders.map((ord) =>
-                ord.id === tempOrderId
-                  ? {
-                      ...ord,
-                      id: srvInv.orderId,
-                      totalAmountIdr: srvInv.breakdown.totalDueIdr,
-                    }
-                  : ord
-              ),
-            }))
-            navigate(`/checkout/invoice/${encodeURIComponent(srvInv.invoiceNumber)}`, { replace: true })
-          }
-        })
-    }
-
     return okResponse('Invoice berhasil diterbitkan.', invoice)
   }
 
-  function createOrderForReviewItems(): ApiResponse<InvoiceRecord> {
+  function createOrderForReviewItems(): Promise<ApiResponse<InvoiceRecord>> {
     return createOrderForItems(reviewItems, revState.reviewSource === 'cart')
   }
 
-  function createOrderAndInvoice(): ApiResponse<InvoiceRecord> {
+  function createOrderAndInvoice(): Promise<ApiResponse<InvoiceRecord>> {
     return createOrderForItems(activeCart, true)
   }
 
@@ -617,20 +649,58 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
     setRevState((prev) => ({ ...prev, pendingAuthItem: null }))
   }
 
-  function submitTicket(payload: {
+  async function submitTicket(payload: {
     department: SupportTicketItem['department']
     subject: string
     message: string
     invoiceNumber?: string
     userEmail?: string
-  }): ApiResponse<SupportTicketItem> {
+    attachmentFile?: File | null
+  }): Promise<ApiResponse<SupportTicketItem>> {
     if (!payload.subject.trim() || !payload.message.trim()) {
       return errorResponse('Subjek dan pesan tiket wajib diisi.')
     }
-    const tempId = `t-${Date.now()}`
+
+    if (isBackendApiEnabled()) {
+      let apiPayload: FormData | Record<string, string | undefined>
+      if (payload.attachmentFile) {
+        const fd = new FormData()
+        fd.append('department', payload.department)
+        fd.append('subject', payload.subject.trim())
+        fd.append('message', payload.message.trim())
+        if (payload.invoiceNumber?.trim()) {
+          fd.append('invoiceNumber', payload.invoiceNumber.trim())
+        }
+        fd.append('attachment', payload.attachmentFile)
+        apiPayload = fd
+      } else {
+        apiPayload = {
+          department: payload.department,
+          subject: payload.subject.trim(),
+          message: payload.message.trim(),
+          invoiceNumber: payload.invoiceNumber?.trim() || undefined,
+        }
+      }
+
+      const res = await hostunerBackendApi.tickets.createTicket(apiPayload)
+      if (!res.success || !res.data) {
+        showToast(res.message, 'error')
+        return res
+      }
+
+      const srvTicket = res.data
+      setRevState((prev) => ({
+        ...prev,
+        tickets: [srvTicket, ...prev.tickets.filter((t) => t.id !== srvTicket.id)],
+      }))
+      showToast(`Tiket bantuan ${srvTicket.ticketNumber} berhasil dikirim!`)
+      return okResponse('Tiket terkirim.', srvTicket)
+    }
+
+    // Fallback localStorage mode
     const num = `#${Math.floor(100000 + Math.random() * 899999)}`
     const ticket: SupportTicketItem = {
-      id: tempId,
+      id: `t-${Date.now()}`,
       ticketNumber: num,
       userEmail: payload.userEmail?.trim().toLowerCase() || currentUser?.email.toLowerCase(),
       department: payload.department,
@@ -646,33 +716,34 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
       logs: appendRevisionLog(prev, 'payment', 'TICKET', `Tiket ${num} (${payload.department}) dikirim`),
     }))
     showToast(`Tiket bantuan ${num} berhasil dikirim!`)
-
-    if (isBackendApiEnabled()) {
-      void hostunerBackendApi.tickets
-        .createTicket({
-          department: ticket.department,
-          subject: ticket.subject,
-          message: ticket.message,
-          invoiceNumber: ticket.invoiceNumber,
-        })
-        .then((res) => {
-          if (res.success && res.data) {
-            const srvTicket = res.data
-            setRevState((prev) => ({
-              ...prev,
-              tickets: prev.tickets.map((t) => (t.id === tempId ? srvTicket : t)),
-            }))
-          }
-        })
-    }
-
     return okResponse('Tiket terkirim.', ticket)
   }
 
-  function saveProduct(product: Omit<HostingProduct, 'id'> & { id?: number }): ApiResponse<HostingProduct> {
+  async function saveProduct(
+    product: Omit<HostingProduct, 'id'> & { id?: number }
+  ): Promise<ApiResponse<HostingProduct>> {
     const isEdit = Boolean(product.id)
-    const tempId = product.id ?? Date.now()
-    const saved: HostingProduct = { ...product, id: tempId }
+
+    if (isBackendApiEnabled()) {
+      const res = await hostunerBackendApi.admin.saveProduct(product)
+      if (!res.success || !res.data) {
+        showToast(res.message, 'error')
+        return res
+      }
+      const srvProd = res.data
+      const logsRes = await hostunerBackendApi.admin.listLogs()
+      setRevState((prev) => ({
+        ...prev,
+        products: isEdit
+          ? prev.products.map((p) => (p.id === srvProd.id ? srvProd : p))
+          : [srvProd, ...prev.products],
+        logs: logsRes.success && logsRes.data ? logsRes.data : prev.logs,
+      }))
+      showToast(isEdit ? `Produk ${srvProd.name} diperbarui.` : `Produk ${srvProd.name} ditambahkan.`)
+      return okResponse('Produk tersimpan.', srvProd)
+    }
+
+    const saved: HostingProduct = { ...product, id: product.id ?? Date.now() }
     setRevState((prev) => ({
       ...prev,
       products: isEdit ? prev.products.map((p) => (p.id === saved.id ? saved : p)) : [saved, ...prev.products],
@@ -684,53 +755,65 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
       ),
     }))
     showToast(isEdit ? `Produk ${saved.name} diperbarui.` : `Produk ${saved.name} ditambahkan.`)
-
-    if (isBackendApiEnabled()) {
-      void hostunerBackendApi.admin.saveProduct(product).then((res) => {
-        if (res.success && res.data) {
-          const srvProd = res.data
-          setRevState((prev) => ({
-            ...prev,
-            products: prev.products.map((p) => (p.id === tempId ? srvProd : p)),
-          }))
-        } else if (!res.success) {
-          showToast(res.message, 'error')
-        }
-      })
-    }
-
     return okResponse('Produk tersimpan.', saved)
   }
 
-  function deleteProduct(productId: number) {
+  async function deleteProduct(productId: number): Promise<ApiResponse<null>> {
     const target = revState.products.find((p) => p.id === productId)
+
+    if (isBackendApiEnabled()) {
+      const res = await hostunerBackendApi.admin.deleteProduct(productId)
+      if (!res.success) {
+        showToast(res.message, 'error')
+        return res
+      }
+      const logsRes = await hostunerBackendApi.admin.listLogs()
+      setRevState((prev) => ({
+        ...prev,
+        products: prev.products.filter((p) => p.id !== productId),
+        logs: logsRes.success && logsRes.data ? logsRes.data : prev.logs,
+      }))
+      showToast(`Produk ${target?.name ?? ''} dihapus.`, 'info')
+      return okResponse('Produk dihapus.', null)
+    }
+
     setRevState((prev) => ({
       ...prev,
       products: prev.products.filter((p) => p.id !== productId),
       logs: target ? appendRevisionLog(prev, 'product', 'DELETE', `Produk ${target.name} dihapus oleh Admin`) : prev.logs,
     }))
     showToast(`Produk ${target?.name ?? ''} dihapus.`, 'info')
-
-    if (isBackendApiEnabled()) {
-      void hostunerBackendApi.admin.deleteProduct(productId).then((res) => {
-        if (!res.success && target) {
-          setRevState((prev) => ({
-            ...prev,
-            products: [...prev.products, target],
-          }))
-          showToast(res.message, 'error')
-        }
-      })
-    }
+    return okResponse('Produk dihapus.', null)
   }
 
-  function saveUser(user: Omit<UserAccount, 'id' | 'createdAt'> & { id?: number }): ApiResponse<UserAccount> {
+  async function saveUser(
+    user: Omit<UserAccount, 'id' | 'createdAt'> & { id?: number }
+  ): Promise<ApiResponse<UserAccount>> {
     const isEdit = Boolean(user.id)
+
+    if (isBackendApiEnabled()) {
+      const res = await hostunerBackendApi.admin.saveUser(user)
+      if (!res.success || !res.data) {
+        showToast(res.message, 'error')
+        return res
+      }
+      const srvUser = res.data
+      const logsRes = await hostunerBackendApi.admin.listLogs()
+      setRevState((prev) => ({
+        ...prev,
+        users: isEdit
+          ? prev.users.map((u) => (u.id === srvUser.id ? srvUser : u))
+          : [srvUser, ...prev.users],
+        logs: logsRes.success && logsRes.data ? logsRes.data : prev.logs,
+      }))
+      showToast(`User ${srvUser.name} disimpan.`)
+      return okResponse('User tersimpan.', srvUser)
+    }
+
     const existing = user.id ? revState.users.find((u) => u.id === user.id) : undefined
-    const tempId = user.id ?? Date.now()
     const saved: UserAccount = {
       ...user,
-      id: tempId,
+      id: user.id ?? Date.now(),
       createdAt: existing?.createdAt ?? getNowTimestamp(),
     }
     setRevState((prev) => ({
@@ -739,53 +822,68 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
       logs: appendRevisionLog(prev, 'user', isEdit ? 'UPDATE' : 'CREATE', `Data akun ${saved.name} (${saved.role}) disimpan Admin`),
     }))
     showToast(`User ${saved.name} disimpan.`)
-
-    if (isBackendApiEnabled()) {
-      void hostunerBackendApi.admin.saveUser(user).then((res) => {
-        if (res.success && res.data) {
-          const srvUser = res.data
-          setRevState((prev) => ({
-            ...prev,
-            users: prev.users.map((u) => (u.id === tempId ? srvUser : u)),
-          }))
-        } else if (!res.success) {
-          showToast(res.message, 'error')
-        }
-      })
-    }
-
     return okResponse('User tersimpan.', saved)
   }
 
-  function deleteUser(userId: number) {
+  async function deleteUser(userId: number): Promise<ApiResponse<null>> {
     const target = revState.users.find((u) => u.id === userId)
+
+    if (isBackendApiEnabled()) {
+      const res = await hostunerBackendApi.admin.deleteUser(userId)
+      if (!res.success) {
+        showToast(res.message, 'error')
+        return res
+      }
+      const logsRes = await hostunerBackendApi.admin.listLogs()
+      setRevState((prev) => ({
+        ...prev,
+        users: prev.users.filter((u) => u.id !== userId),
+        logs: logsRes.success && logsRes.data ? logsRes.data : prev.logs,
+      }))
+      showToast('User dihapus.', 'info')
+      return okResponse('User dihapus.', null)
+    }
+
     setRevState((prev) => ({
       ...prev,
       users: prev.users.filter((u) => u.id !== userId),
       logs: target ? appendRevisionLog(prev, 'user', 'DELETE', `Akun ${target.email} dihapus oleh Admin`) : prev.logs,
     }))
     showToast('User dihapus.', 'info')
-
-    if (isBackendApiEnabled()) {
-      void hostunerBackendApi.admin.deleteUser(userId).then((res) => {
-        if (!res.success && target) {
-          setRevState((prev) => ({
-            ...prev,
-            users: [...prev.users, target],
-          }))
-          showToast(res.message, 'error')
-        }
-      })
-    }
+    return okResponse('User dihapus.', null)
   }
 
-  function markInvoicePaid(invoiceId: number) {
+  async function markInvoicePaid(invoiceId: number): Promise<ApiResponse<InvoiceRecord>> {
     const inv = revState.invoices.find((i) => i.id === invoiceId)
-    if (!inv) return
+
+    if (isBackendApiEnabled()) {
+      const res = await hostunerBackendApi.admin.confirmInvoicePaid(invoiceId)
+      if (!res.success || !res.data) {
+        showToast(res.message, 'error')
+        return res
+      }
+      const srvInv = res.data
+      const logsRes = await hostunerBackendApi.admin.listLogs()
+      setRevState((prev) => ({
+        ...prev,
+        invoices: prev.invoices.map((i) => (i.id === invoiceId ? srvInv : i)),
+        orders: prev.orders.map((o) =>
+          o.id === srvInv.orderId ? { ...o, orderStatus: 'active' } : o
+        ),
+        logs: logsRes.success && logsRes.data ? logsRes.data : prev.logs,
+      }))
+      showToast(`Invoice #${srvInv.invoiceNumber} berstatus PAID & layanan aktif!`)
+      return okResponse('Invoice berhasil dikonfirmasi PAID.', srvInv)
+    }
+
+    if (!inv) {
+      return errorResponse('Invoice tidak ditemukan.')
+    }
     const paidAt = getNowTimestamp()
+    const updatedInv: InvoiceRecord = { ...inv, paymentStatus: 'paid', paidAt }
     setRevState((prev) => ({
       ...prev,
-      invoices: prev.invoices.map((i) => (i.id === invoiceId ? { ...i, paymentStatus: 'paid', paidAt } : i)),
+      invoices: prev.invoices.map((i) => (i.id === invoiceId ? updatedInv : i)),
       orders: prev.orders.map((o) => (o.id === inv.orderId ? { ...o, orderStatus: 'active' } : o)),
       logs: appendRevisionLog(
         prev,
@@ -795,21 +893,7 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
       ),
     }))
     showToast(`Invoice #${inv.invoiceNumber} berstatus PAID & layanan aktif!`)
-
-    if (isBackendApiEnabled()) {
-      void hostunerBackendApi.admin.confirmInvoicePaid(invoiceId).then((res) => {
-        if (res.success && res.data) {
-          const srvInv = res.data
-          setRevState((prev) => ({
-            ...prev,
-            invoices: prev.invoices.map((i) => (i.id === invoiceId ? srvInv : i)),
-            orders: prev.orders.map((o) => (o.id === srvInv.orderId ? { ...o, orderStatus: 'active' } : o)),
-          }))
-        } else if (!res.success) {
-          showToast(res.message, 'error')
-        }
-      })
-    }
+    return okResponse('Invoice berhasil dikonfirmasi PAID.', updatedInv)
   }
 
   function addPaymentMethod(pm: Omit<PaymentMethod, 'id'>): ApiResponse<PaymentMethod> {

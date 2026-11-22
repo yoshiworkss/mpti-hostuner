@@ -13,6 +13,9 @@ import { sendError, sendSuccess } from './utils/response.js'
 export function createApp() {
   const app = express()
 
+  // Trust reverse proxy (Nginx / Cloudflare on VPS) for HTTPS secure cookies & client IP
+  app.set('trust proxy', 1)
+
   // Explicit CORS whitelist with credentials: true (02_BACKEND_API_AND_DATABASE_CONTRACT.md Section 1.B)
   app.use(
     cors({
@@ -40,6 +43,7 @@ export function createApp() {
     return sendSuccess(res, 200, 'Hostuner-25 REST API operational.', {
       service: 'hostuner-25-backend',
       status: 'ok',
+      trustProxy: Boolean(app.get('trust proxy')),
       paymentMethod: 'qris-statis',
       ppnRatePercent: ENV.PPN_RATE_PERCENT,
       uniqueVerificationCodeIdr: ENV.UNIQUE_VERIFICATION_CODE_IDR,

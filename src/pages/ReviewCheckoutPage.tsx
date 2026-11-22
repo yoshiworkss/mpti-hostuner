@@ -27,6 +27,7 @@ export function ReviewCheckoutPage() {
   const [promoInput, setPromoInput] = useState('')
   const [promoError, setPromoError] = useState<string | undefined>(undefined)
   const [promoSuccess, setPromoSuccess] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const isDev = import.meta.env.DEV
 
@@ -135,13 +136,19 @@ export function ReviewCheckoutPage() {
     showToast(`Promo ${normalized} berhasil diverifikasi!`)
   }
 
-  function handleCheckoutNow() {
-    const res = createOrderForReviewItems()
-    if (!res.success || !res.data) {
-      showToast(res.message, 'error')
-      return
+  async function handleCheckoutNow() {
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      const res = await createOrderForReviewItems()
+      if (!res.success || !res.data) {
+        showToast(res.message, 'error')
+        return
+      }
+      navigate(`/checkout/invoice/${encodeURIComponent(res.data.invoiceNumber)}`)
+    } finally {
+      setIsSubmitting(false)
     }
-    navigate(`/checkout/invoice/${encodeURIComponent(res.data.invoiceNumber)}`)
   }
 
   function handleAddToCartInstead() {
@@ -392,10 +399,13 @@ export function ReviewCheckoutPage() {
                 {/* Primary CTA: Checkout */}
                 <button
                   type="button"
-                  onClick={handleCheckoutNow}
-                  className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-full bg-green-cta px-6 py-3 text-[14px] font-semibold text-white transition-colors hover:bg-green-cta-hover"
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    void handleCheckoutNow()
+                  }}
+                  className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-full bg-green-cta px-6 py-3 text-[14px] font-semibold text-white transition-colors hover:bg-green-cta-hover disabled:cursor-not-allowed disabled:opacity-55"
                 >
-                  <span>Checkout →</span>
+                  <span>{isSubmitting ? 'Menerbitkan Invoice QRIS...' : 'Checkout →'}</span>
                 </button>
 
                 {/* Kaishan Feedback #3: Add to Cart button directly below Checkout */}

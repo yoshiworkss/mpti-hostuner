@@ -35,12 +35,12 @@ export interface HostunerContextValue {
   showToast: (text: string, type?: ToastMessage['type']) => void
   dismissToast: (id: string) => void
 
-  // Auth & Role Actions
+  // Auth & Role Actions (async Promise<ApiResponse<T>> for Backend API verification & rollback)
   loginUser: (
     email: string,
     roleHint?: 'customer' | 'admin',
     options?: { password?: string; turnstileToken?: string }
-  ) => ApiResponse<UserAccount>
+  ) => Promise<ApiResponse<UserAccount>>
   loginAsDemoCustomer: () => void
   loginAsDemoAdmin: () => void
   registerCustomer: (payload: {
@@ -54,14 +54,14 @@ export interface HostunerContextValue {
     postcode?: string
     country?: string
     turnstileToken?: string
-  }) => ApiResponse<UserAccount>
+  }) => Promise<ApiResponse<UserAccount>>
   logoutUser: () => void
 
   // Cart & Order Actions
   addToCart: (item: CartItem) => void
   updateCartItemCycle: (itemId: string, cycle: BillingCycle) => void
   removeFromCart: (itemId: string) => void
-  createOrderAndInvoice: (paymentMethodId: string) => ApiResponse<InvoiceRecord>
+  createOrderAndInvoice: (paymentMethodId: string) => Promise<ApiResponse<InvoiceRecord>>
 
   // Support Actions
   submitTicket: (payload: {
@@ -70,14 +70,19 @@ export interface HostunerContextValue {
     message: string
     invoiceNumber?: string
     userEmail?: string
-  }) => ApiResponse<SupportTicketItem>
+    attachmentFile?: File | null
+  }) => Promise<ApiResponse<SupportTicketItem>>
 
   // Admin CRUD & Logs Actions (wired across Admin Portal)
-  saveProduct: (product: Omit<HostingProduct, 'id'> & { id?: number }) => ApiResponse<HostingProduct>
-  deleteProduct: (productId: number) => void
-  saveUser: (user: Omit<UserAccount, 'id' | 'createdAt'> & { id?: number }) => ApiResponse<UserAccount>
-  deleteUser: (userId: number) => void
-  markInvoicePaid: (invoiceId: number) => void
+  saveProduct: (
+    product: Omit<HostingProduct, 'id'> & { id?: number }
+  ) => Promise<ApiResponse<HostingProduct>>
+  deleteProduct: (productId: number) => Promise<ApiResponse<null>>
+  saveUser: (
+    user: Omit<UserAccount, 'id' | 'createdAt'> & { id?: number }
+  ) => Promise<ApiResponse<UserAccount>>
+  deleteUser: (userId: number) => Promise<ApiResponse<null>>
+  markInvoicePaid: (invoiceId: number) => Promise<ApiResponse<InvoiceRecord>>
   addPaymentMethod: (pm: Omit<PaymentMethod, 'id'>) => ApiResponse<PaymentMethod>
   togglePaymentMethod: (pmId: string) => void
   deletePaymentMethod: (pmId: string) => void

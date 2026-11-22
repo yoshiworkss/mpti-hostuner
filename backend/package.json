@@ -2,9 +2,12 @@
   "name": "hostuner-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "Backend Node.js REST API & 3NF SQLite Database for MPTI Hostuner-25",
+  "description": "Backend Node.js REST API & 3NF SQLite Database for MPTI Hostuner-25 (QRIS Statis + PPN 11% + Kode Unik Rp 128)",
   "type": "module",
   "main": "src/server.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
