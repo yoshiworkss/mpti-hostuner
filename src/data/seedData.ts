@@ -605,7 +605,7 @@ export const SEED_TICKETS: SupportTicketItem[] = [
     department: 'Konfirmasi Pembayaran',
     subject: 'Konfirmasi Pembayaran QRIS Invoice #INV-2026-0892',
     message:
-      'Sudah melakukan pembayaran via QRIS Statis Hostuner sebesar Rp 360.128 (termasuk kode unik Rp 128) untuk Paket Hosting Pro + domain portalbisniskami.com.',
+      'Sudah melakukan pembayaran via QRIS Statis Hostuner sebesar Rp 399.728 (termasuk PPN 11% Rp 39.600 & kode unik Rp 128) untuk Paket Hosting Pro + domain portalbisniskami.com.',
     invoiceNumber: 'INV-2026-0892',
     status: 'Open',
     createdAt: '2026-11-18 11:30',
@@ -677,7 +677,7 @@ export const SEED_ORDERS: OrderRecord[] = [
     userId: 1,
     customerName: 'Budi Santoso',
     orderNumber: 'ORD-20261118-0001',
-    totalAmountIdr: 360128,
+    totalAmountIdr: 399728,
     orderStatus: 'pending',
     createdAt: '2026-11-18 11:25',
     items: [
@@ -713,10 +713,10 @@ export const SEED_INVOICES: InvoiceRecord[] = [
       annualDiscountSavedIdr: 54000,
       domainPriceIdr: 0,
       setupFeeIdr: 0,
-      taxRatePercent: 0,
-      taxAmountIdr: 0,
+      taxRatePercent: 11,
+      taxAmountIdr: 39600,
       uniqueVerificationCodeIdr: 128,
-      totalDueIdr: 360128,
+      totalDueIdr: 399728,
     },
     itemsSummary: [
       'Hosting Pro (600 MB Space, Unmetered, Siklus 1 Tahun)',
@@ -762,7 +762,7 @@ export const SEED_LOGS: ActivityLog[] = [
     logType: 'payment',
     timestamp: '18 Nov 2026 • 11:55',
     badge: 'PENDING',
-    message: 'Invoice #INV-2026-0892 (Rp 360.128) — Tiket Konfirmasi #948201 diterima',
+    message: 'Invoice #INV-2026-0892 (Rp 399.728) — Tiket Konfirmasi #948201 diterima',
   },
   {
     id: 'log-6',

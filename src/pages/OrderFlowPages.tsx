@@ -428,7 +428,7 @@ export function OrderConfigurePage() {
             </p>
           )}
           <div className="flex items-center justify-between">
-            <span className="font-bold text-teal">Estimasi Subtotal (sebelum Kode Unik Rp 128)</span>
+            <span className="font-bold text-teal">Estimasi Subtotal (sebelum PPN 11% &amp; Kode Unik Rp 128)</span>
             <span className="text-[16px] font-bold text-coral">
               {formatPrice(unitPriceIdr + domainPriceIdr)}
             </span>

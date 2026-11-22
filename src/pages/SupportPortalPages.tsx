@@ -445,7 +445,7 @@ export function TicketsPage() {
  */
 export function OpenTicketPage() {
   const [searchParams] = useSearchParams()
-  const { currentUser, submitTicket } = useHostuner()
+  const { role, currentUser, submitTicket } = useHostuner()
 
   const prefilledInvoice = (searchParams.get('invoice') ?? '').trim()
   const initialDept: SupportTicketItem['department'] =
@@ -464,6 +464,18 @@ export function OpenTicketPage() {
   const [attachmentName, setAttachmentName] = useState<string>('')
   const [errors, setErrors] = useState<Record<string, string | undefined>>({})
   const [createdTicketNumber, setCreatedTicketNumber] = useState<string | null>(null)
+
+  if (role === 'guest' || !currentUser) {
+    const querySuffix = searchParams.toString()
+    const targetPath = querySuffix ? `/tickets/open?${querySuffix}` : '/tickets/open'
+    return (
+      <RestrictedPageGate
+        pageName="Open Ticket"
+        returnPath={targetPath}
+        description="Silakan login terlebih dahulu untuk membuka tiket bantuan teknis atau mengirimkan konfirmasi pembayaran QRIS Statis Anda."
+      />
+    )
+  }
 
   const departmentItems: SidebarItemConfig[] = [
     {

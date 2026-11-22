@@ -373,6 +373,10 @@ export function ShoppingCartPage() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-teal">
+                  <span>Pajak PPN ({breakdown.taxRatePercent}%):</span>
+                  <span className="font-semibold">{formatPrice(breakdown.taxAmountIdr)}</span>
+                </div>
+                <div className="flex items-center justify-between text-teal">
                   <span>Kode Unik QRIS:</span>
                   <span className="font-semibold">{formatPrice(breakdown.uniqueVerificationCodeIdr)}</span>
                 </div>

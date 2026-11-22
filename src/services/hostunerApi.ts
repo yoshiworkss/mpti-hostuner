@@ -68,7 +68,7 @@ function buildInitialState(): PersistedStoreState {
     cart: [],
     activeUserId: null,
     currency: 'IDR',
-    includePpn11: false,
+    includePpn11: true,
   }
 }
 

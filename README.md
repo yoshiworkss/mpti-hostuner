@@ -46,7 +46,7 @@ Repositori ini sudah dilengkapi [vercel.json](./vercel.json) berisi:
 
 ## 3. Panduan Serah Terima & Integrasi Backend (Untuk Hanif — Node.js REST API)
 
-Saat ini Frontend berjalan dalam **mode mandiri (`localStorage`, storage key `hostuner_v6_frontend_state_v2`)** ketika `VITE_API_BASE_URL` kosong, sehingga dapat langsung diuji oleh UI/UX, QA, dan Klien.
+Saat ini Frontend berjalan dalam **mode mandiri (`localStorage`, storage key `hostuner_v6_frontend_state_v3`)** ketika `VITE_API_BASE_URL` kosong, sehingga dapat langsung diuji oleh UI/UX, QA, dan Klien.
 
 Fondasi integrasi ke **Node.js REST API + SQLite/PostgreSQL** sudah disiapkan pada:
 - **Environment variables:** [.env.example](./.env.example) (`VITE_API_BASE_URL`, `VITE_TURNSTILE_SITE_KEY`, `VITE_HOSTUNER_QRIS_IMAGE_URL`)
@@ -77,8 +77,8 @@ Fondasi integrasi ke **Node.js REST API + SQLite/PostgreSQL** sudah disiapkan pa
 | **Orders** | `GET /api/orders/me` | Riwayat pesanan milik akun yang sedang login |
 | **Invoices** | `GET /api/invoices/me` | Riwayat invoice milik akun yang sedang login |
 | **Invoices** | `GET /api/invoices/:invoiceNumber` | Wajib cek kepemilikan (`invoice.userId === req.user.id || req.user.role === 'admin'`) |
-| **Orders** | `POST /api/orders` | `{ items, paymentMethodId: "qris-statis", includePpn11 }` — menerbitkan order & invoice QRIS Statis (+ Kode Unik `Rp 128`) |
-| **Tickets** | `GET /api/tickets/me`, `POST /api/tickets` | Mendukung JSON atau `FormData` untuk upload bukti scan QRIS (`.jpg/.png/.pdf`) |
+| **Orders** | `POST /api/orders` | `{ items, paymentMethodId: "qris-statis", includePpn11 }` — menerbitkan order & invoice QRIS Statis (+ PPN `11%` & Kode Unik `Rp 128`) |
+| **Tickets** | `GET /api/tickets/me`, `POST /api/tickets` | Wajib login (`requireAuth`); mendukung JSON atau `FormData` untuk upload bukti scan QRIS (`.jpg/.png/.pdf`) |
 | **Admin Product** | `POST /api/admin/products`, `PUT /api/admin/products/:id`, `DELETE /api/admin/products/:id` | Khusus `role === 'admin'` (`UC-05`) |
 | **Admin User** | `GET /api/admin/users`, `POST /api/admin/users`, `PUT /api/admin/users/:id`, `DELETE /api/admin/users/:id` | Khusus `role === 'admin'` (`UC-06`) |
 | **Admin Billing** | `PATCH /api/admin/invoices/:id/pay` | Khusus `role === 'admin'` (`UC-08`: ubah invoice -> `paid` & order -> `active`) |
@@ -97,7 +97,7 @@ Fondasi integrasi ke **Node.js REST API + SQLite/PostgreSQL** sudah disiapkan pa
 - `src/App.tsx` — Router utama dengan `React.lazy()` code-splitting (seluruh rute publik, auth, checkout, client, support, dan 6 modul admin).
 - `src/context/HostunerRevisionProvider.tsx` — State provider aktif (QRIS Statis, per-user cart, login gate, RBAC, per-user invoices & tickets).
 - `src/services/apiClient.ts` — HTTP client siap-pakai untuk REST API Node.js.
-- `src/services/hostunerRevisionStore.ts` — Persisten lokal `v2` (QRIS Statis + sanitasi anti-bank lama).
+- `src/services/hostunerRevisionStore.ts` — Persisten lokal `v3` (QRIS Statis + PPN `11%` + sanitasi anti-bank lama).
 - `src/components/layout/` — `PageShell`, `TopUtilityBar`, `CapsuleNavbar`, `HybridSidebar`, `Footer`.
 - `src/components/admin/AdminAccessGuard.tsx` — Guard ketat khusus `role === 'admin'`.
 - `src/pages/` — Seluruh halaman aktif Tahap 2–5 (`HomePage`, `StoreCategoryPage`, `DomainSearchPage`, `OrderFlowPages`, `ShoppingCartPage`, `ReviewCheckoutPage`, `QrisInvoicePage`, `AuthRevisionPages`, `ClientAreaPage`, `AnnouncementsPage`, `KnowledgebasePages`, `DownloadsPage`, `SupportPortalPages`, `AdminOverviewLogsPages`, `AdminCrudPages`, `AdminContentPaymentPages`, `NotFoundPage`).

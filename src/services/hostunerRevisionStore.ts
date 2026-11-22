@@ -17,7 +17,7 @@ import type {
   SupportTicketItem,
 } from '../types/hostuner'
 
-export const REVISION_STORAGE_KEY = 'hostuner_v6_frontend_state_v2'
+export const REVISION_STORAGE_KEY = 'hostuner_v6_frontend_state_v3'
 
 export const STATIC_QRIS_PAYMENT_METHOD: PaymentMethod = {
   id: 'qris-statis',
@@ -48,7 +48,7 @@ function buildQrisSeedTickets(): SupportTicketItem[] {
           ...t,
           subject: 'Konfirmasi Pembayaran QRIS Invoice #INV-2026-0892',
           message:
-            'Sudah melakukan pembayaran via QRIS Statis Hostuner sebesar Rp 360.128 (termasuk kode unik Rp 128) untuk Paket Hosting Pro + domain portalbisniskami.com.',
+            'Sudah melakukan pembayaran via QRIS Statis Hostuner sebesar Rp 399.728 (termasuk PPN 11% Rp 39.600 & kode unik Rp 128) untuk Paket Hosting Pro + domain portalbisniskami.com.',
         }
       : { ...t }
   )
@@ -70,10 +70,10 @@ function buildQrisSeedInvoices(): InvoiceRecord[] {
         annualDiscountSavedIdr: 54000,
         domainPriceIdr: 0,
         setupFeeIdr: 0,
-        taxRatePercent: 0,
-        taxAmountIdr: 0,
+        taxRatePercent: 11,
+        taxAmountIdr: 39600,
         uniqueVerificationCodeIdr: 128,
-        totalDueIdr: 360128,
+        totalDueIdr: 399728,
       },
       itemsSummary: [
         'Hosting Pro (600 MB Space, Unmetered, Siklus 1 Tahun)',
@@ -121,7 +121,7 @@ function buildQrisSeedLogs(): ActivityLog[] {
       logType: 'payment',
       timestamp: '18 Nov 2026 • 11:55',
       badge: 'PENDING',
-      message: 'Invoice #INV-2026-0892 (Rp 360.128) — Menunggu verifikasi QRIS Statis (#948201)',
+      message: 'Invoice #INV-2026-0892 (Rp 399.728) — Menunggu verifikasi QRIS Statis (#948201)',
     },
     {
       id: 'log-6',
@@ -153,7 +153,7 @@ export function buildRevisionInitialState(): RevisionPersistedState {
     pendingAuthItem: null,
     activeUserId: null,
     currency: 'IDR',
-    includePpn11: false,
+    includePpn11: true,
   }
 }
 
@@ -200,6 +200,8 @@ export function loadRevisionState(): RevisionPersistedState {
       reviewSource: parsed.reviewSource === 'cart' ? 'cart' : 'draft',
       reviewSelectedCartIds: Array.isArray(parsed.reviewSelectedCartIds) ? parsed.reviewSelectedCartIds : [],
       pendingAuthItem: parsed.pendingAuthItem ?? null,
+      // Enforce PPN 11% in production per 05_SRS & 08_Use_Case; DEV mode keeps optional preview toggle
+      includePpn11: import.meta.env.DEV ? (parsed.includePpn11 ?? true) : true,
     }
   } catch {
     return buildRevisionInitialState()
