@@ -13,6 +13,7 @@ interface TurnstileWindow extends Window {
         'error-callback'?: () => void
       }
     ) => string
+    reset?: (widgetId?: string) => void
     remove?: (widgetId: string) => void
   }
 }
@@ -25,6 +26,7 @@ interface VerificationCaptchaWidgetProps {
   turnstileChecked: boolean
   onToggleTurnstile: (checked: boolean) => void
   onTurnstileToken?: (token: string | null) => void
+  resetSignal?: number
   error?: string
   idPrefix?: string
 }
@@ -35,8 +37,9 @@ const TURNSTILE_SITE_KEY =
 
 /**
  * Auth-only Verification Captcha matching Figma Page FIX V6 (`34 Login`, `35 Reset`, `38 Register 3`)
- * combined with official Cloudflare Turnstile widget (`05_SRS FR-08`) when `VITE_TURNSTILE_SITE_KEY` is configured,
- * and a clean development fallback checkbox when `VITE_TURNSTILE_SITE_KEY` is empty.
+ * combined with official Cloudflare Turnstile widget (`05_SRS FR-08`) when `VITE_TURNSTILE_SITE_KEY` is configured:
+ * - Automatically calls `window.turnstile.reset(widgetId)` when `resetSignal` increments (e.g. after a failed 401/409 auth attempt)
+ *   because Cloudflare Turnstile tokens are strictly single-use.
  */
 export function VerificationCaptchaWidget({
   code,
@@ -46,6 +49,7 @@ export function VerificationCaptchaWidget({
   turnstileChecked,
   onToggleTurnstile,
   onTurnstileToken,
+  resetSignal = 0,
   error,
   idPrefix = 'captcha',
 }: VerificationCaptchaWidgetProps) {
@@ -135,6 +139,21 @@ export function VerificationCaptchaWidget({
       }
     }
   }, [])
+
+  // Auto-reset single-use Cloudflare Turnstile token when parent increments `resetSignal` on failed login/register
+  useEffect(() => {
+    if (resetSignal <= 0 || !TURNSTILE_SITE_KEY) return
+    const win = window as TurnstileWindow
+    if (widgetIdRef.current && win.turnstile?.reset) {
+      try {
+        win.turnstile.reset(widgetIdRef.current)
+      } catch {
+        // ignore reset errors
+      }
+      toggleCallbackRef.current(false)
+      tokenCallbackRef.current?.(null)
+    }
+  }, [resetSignal])
 
   return (
     <div className="space-y-3">

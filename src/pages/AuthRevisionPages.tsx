@@ -39,6 +39,7 @@ export function LoginRevisionPage() {
   const [captchaInput, setCaptchaInput] = useState('')
   const [turnstileChecked, setTurnstileChecked] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const [turnstileResetSignal, setTurnstileResetSignal] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errors, setErrors] = useState<{ email?: string; password?: string; captcha?: string }>({})
 
@@ -116,6 +117,7 @@ export function LoginRevisionPage() {
       })
 
       if (!res.success || !res.data) {
+        setTurnstileResetSignal((c) => c + 1)
         setErrors({
           email: res.errors?.email ?? (!res.errors?.password && !res.errors?.captcha ? res.message : undefined),
           password: res.errors?.password,
@@ -288,6 +290,7 @@ export function LoginRevisionPage() {
                   if (errors.captcha) setErrors((prev) => ({ ...prev, captcha: undefined }))
                 }}
                 onTurnstileToken={setTurnstileToken}
+                resetSignal={turnstileResetSignal}
                 error={errors.captcha}
               />
 
@@ -518,6 +521,7 @@ export function RegisterRevisionPage() {
   const [captchaInput, setCaptchaInput] = useState('')
   const [turnstileChecked, setTurnstileChecked] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const [turnstileResetSignal, setTurnstileResetSignal] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errors, setErrors] = useState<Record<string, string | undefined>>({})
 
@@ -603,6 +607,7 @@ export function RegisterRevisionPage() {
       })
 
       if (!res.success) {
+        setTurnstileResetSignal((c) => c + 1)
         const nextErrs = res.errors ?? { email: res.message }
         setErrors(nextErrs)
         if (nextErrs.email || nextErrs.name || nextErrs.phone) {
@@ -985,6 +990,7 @@ export function RegisterRevisionPage() {
                     clearFieldError('captcha')
                   }}
                   onTurnstileToken={setTurnstileToken}
+                  resetSignal={turnstileResetSignal}
                   error={errors.captcha}
                 />
 

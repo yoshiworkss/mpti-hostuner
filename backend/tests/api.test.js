@@ -511,6 +511,104 @@ async function runAllTests() {
       assert.ok(seedOrder101)
       assert.equal(seedOrder101.orderStatus, 'active')
       recordPass('PATCH /api/admin/invoices/1/pay (UC-08) atomically updates invoice->paid & order->active -> 200')
+
+      // 36. Full E2E Smoke Flow (Wrong password -> Register -> Logout -> Incognito Re-login -> Checkout -> 403 Other User -> Admin Confirm PAID -> Remote Invoice PAID & Order Active)
+      const smokeWrongLogin = await request('/auth/login', {
+        method: 'POST',
+        body: {
+          email: 'budi@sman1solo.sch.id',
+          password: 'SalahPassword999!',
+          turnstileToken: 'turnstile-local-verified',
+        },
+      })
+      assert.equal(smokeWrongLogin.status, 401)
+      assert.equal(smokeWrongLogin.cookie, null)
+
+      const smokeRegister = await request('/auth/register', {
+        method: 'POST',
+        body: {
+          name: 'Raka Pratama',
+          email: 'raka.smoke@hostuner.test',
+          phone: '081277788899',
+          password: 'Hostuner25!',
+          companyOrSchool: 'SMK Negeri 5 Surakarta',
+          streetAddress: 'Jl. Adi Sucipto No. 42',
+          city: 'Surakarta',
+          province: 'Jawa Tengah',
+          postalCode: '57143',
+          country: 'Indonesia',
+          turnstileToken: 'turnstile-local-verified',
+        },
+      })
+      assert.equal(smokeRegister.status, 201)
+      const rakaFirstCookie = smokeRegister.cookie
+      assert.ok(rakaFirstCookie && rakaFirstCookie.includes('hostuner_token='))
+
+      // Verify /api/auth/me returns full profile for bootstrapFromBackend merge into prev.users
+      const rakaMe = await request('/auth/me', { cookie: rakaFirstCookie })
+      assert.equal(rakaMe.status, 200)
+      assert.equal(rakaMe.json.data.email, 'raka.smoke@hostuner.test')
+
+      // Logout & re-login as if from an incognito browser with zero local state
+      await request('/auth/logout', { method: 'POST', cookie: rakaFirstCookie })
+      const rakaRelogin = await request('/auth/login', {
+        method: 'POST',
+        body: {
+          email: 'raka.smoke@hostuner.test',
+          password: 'Hostuner25!',
+          turnstileToken: 'turnstile-local-verified',
+        },
+      })
+      assert.equal(rakaRelogin.status, 200)
+      const rakaCookie = rakaRelogin.cookie
+      assert.ok(rakaCookie && rakaCookie.includes('hostuner_token='))
+
+      // Checkout Hosting + Domain order -> QRIS invoice
+      const rakaCheckout = await request('/orders', {
+        method: 'POST',
+        cookie: rakaCookie,
+        body: {
+          paymentMethodId: 'qris-statis',
+          includePpn11: true,
+          items: [
+            {
+              id: 'cart-smoke-1',
+              type: 'hosting_domain',
+              productId: 1,
+              domainName: 'smkn5solo-smoke.sch.id',
+              domainAction: 'register',
+              billingCycle: 'annually',
+            },
+          ],
+        },
+      })
+      assert.equal(rakaCheckout.status, 201)
+      const rakaInvoiceNum = rakaCheckout.json.data.invoiceNumber
+      const rakaInvoiceId = rakaCheckout.json.data.id
+
+      // Other user (Budi) opening Raka's invoice gets 403
+      const budiForbiddenOnRaka = await request(`/invoices/${encodeURIComponent(rakaInvoiceNum)}`, {
+        cookie: budiCookie,
+      })
+      assert.equal(budiForbiddenOnRaka.status, 403)
+
+      // Admin confirms PAID (UC-08) -> Remote GET /api/invoices/:invoiceNumber returns paymentStatus: 'paid' & order is 'active'
+      const adminPayRaka = await request(`/admin/invoices/${rakaInvoiceId}/pay`, {
+        method: 'PATCH',
+        cookie: adminCookie,
+      })
+      assert.equal(adminPayRaka.status, 200)
+
+      const rakaRemoteInvoiceAfterPay = await request(`/invoices/${encodeURIComponent(rakaInvoiceNum)}`, {
+        cookie: rakaCookie,
+      })
+      assert.equal(rakaRemoteInvoiceAfterPay.status, 200)
+      assert.equal(rakaRemoteInvoiceAfterPay.json.data.paymentStatus, 'paid')
+
+      const rakaOrdersAfterPay = await request('/orders/me', { cookie: rakaCookie })
+      assert.equal(rakaOrdersAfterPay.status, 200)
+      assert.equal(rakaOrdersAfterPay.json.data[0].orderStatus, 'active')
+      recordPass('Full E2E Smoke Flow (401 rollback -> Register -> Incognito Re-login -> Checkout QRIS -> 403 Ownership -> Admin UC-08 PAID -> Remote Invoice PAID & Order Active)')
     }
 
     // Re-seed clean state after tests so database is left in pristine initial state

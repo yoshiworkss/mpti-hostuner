@@ -208,18 +208,24 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
 
       if (!active) return
 
+      const authedUser = meRes.success && meRes.data ? meRes.data : null
       setRevState((prev) => ({
         ...prev,
+        users: authedUser
+          ? prev.users.some((u) => u.id === authedUser.id)
+            ? prev.users.map((u) => (u.id === authedUser.id ? authedUser : u))
+            : [...prev.users, authedUser]
+          : prev.users,
         categories: catRes.success && catRes.data?.length ? catRes.data : prev.categories,
         products: prodRes.success && prodRes.data?.length ? prodRes.data : prev.products,
         announcements: annRes.success && annRes.data?.length ? annRes.data : prev.announcements,
         kbArticles: kbRes.success && kbRes.data?.length ? kbRes.data : prev.kbArticles,
         // Reset stale localStorage activeUserId to null if Backend session is unauthenticated (401/403)
-        activeUserId: meRes.success && meRes.data ? meRes.data.id : null,
+        activeUserId: authedUser ? authedUser.id : null,
       }))
 
-      if (meRes.success && meRes.data) {
-        await syncUserAndAdminDataFromBackend(meRes.data, false)
+      if (authedUser) {
+        await syncUserAndAdminDataFromBackend(authedUser, false)
       }
     }
 
