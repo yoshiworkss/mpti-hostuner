@@ -7,6 +7,7 @@ import { PageShell } from '../components/layout/PageShell'
 import { FieldError } from '../components/ui/FeedbackStates'
 import { useHostuner } from '../context/useHostuner'
 import { useRevisionCart } from '../context/useRevisionCart'
+import { isBackendApiEnabled } from '../services/apiClient'
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
@@ -37,6 +38,9 @@ export function LoginRevisionPage() {
   const [captchaCode, setCaptchaCode] = useState(DEFAULT_CAPTCHA_CODE)
   const [captchaInput, setCaptchaInput] = useState('')
   const [turnstileChecked, setTurnstileChecked] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const [turnstileResetSignal, setTurnstileResetSignal] = useState(0)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [errors, setErrors] = useState<{ email?: string; password?: string; captcha?: string }>({})
 
   function handleQuickFillDev() {
@@ -44,6 +48,7 @@ export function LoginRevisionPage() {
     setPassword('Hostuner25!')
     setCaptchaInput(captchaCode)
     setTurnstileChecked(true)
+    setTurnstileToken('turnstile-local-verified')
     setErrors({})
   }
 
@@ -54,8 +59,9 @@ export function LoginRevisionPage() {
     setPassword('')
   }
 
-  function handleLoginSubmit(e: React.FormEvent) {
+  async function handleLoginSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (isSubmitting) return
     const cleanEmail = email.trim().toLowerCase()
     const nextErrors: { email?: string; password?: string; captcha?: string } = {}
 
@@ -79,37 +85,54 @@ export function LoginRevisionPage() {
       return
     }
 
-    const matchedUser = state.users.find((u) => u.email.toLowerCase() === cleanEmail)
-    if (!matchedUser) {
-      setErrors({
-        email: 'Email belum terdaftar. Silakan periksa kembali atau daftar akun baru.',
-      })
-      return
-    }
-    if (loginMode === 'admin' && matchedUser.role !== 'admin') {
-      setErrors({
-        email: 'Akun ini tidak memiliki hak akses Administrator. Gunakan akun Admin atau kembali ke Login Client.',
-      })
-      return
-    }
-    if (matchedUser.status === 'SUSPENDED') {
-      setErrors({
-        email: 'Akun ini sedang berstatus SUSPENDED. Hubungi tim Support Hostuner.',
-      })
-      return
+    // In local fallback mode (when Backend API is disabled), check against local state.users
+    if (!isBackendApiEnabled()) {
+      const matchedUser = state.users.find((u) => u.email.toLowerCase() === cleanEmail)
+      if (!matchedUser) {
+        setErrors({
+          email: 'Email belum terdaftar. Silakan periksa kembali atau daftar akun baru.',
+        })
+        return
+      }
+      if (loginMode === 'admin' && matchedUser.role !== 'admin') {
+        setErrors({
+          email: 'Akun ini tidak memiliki hak akses Administrator. Gunakan akun Admin atau kembali ke Login Client.',
+        })
+        return
+      }
+      if (matchedUser.status === 'SUSPENDED') {
+        setErrors({
+          email: 'Akun ini sedang berstatus SUSPENDED. Hubungi tim Support Hostuner.',
+        })
+        return
+      }
     }
 
     setErrors({})
-    const res = loginUser(matchedUser.email, matchedUser.role, {
-      password,
-      turnstileToken: turnstileChecked ? 'turnstile-local-verified' : undefined,
-    })
-    if (res.success) {
+    setIsSubmitting(true)
+    try {
+      const res = await loginUser(cleanEmail, loginMode === 'admin' ? 'admin' : 'customer', {
+        password,
+        turnstileToken: turnstileToken ?? (turnstileChecked ? 'turnstile-local-verified' : undefined),
+      })
+
+      if (!res.success || !res.data) {
+        setTurnstileResetSignal((c) => c + 1)
+        setErrors({
+          email: res.errors?.email ?? (!res.errors?.password && !res.errors?.captcha ? res.message : undefined),
+          password: res.errors?.password,
+          captcha: res.errors?.captcha,
+        })
+        return
+      }
+
       if (redirectTo) {
         navigate(redirectTo, { replace: true })
       } else {
-        navigate(matchedUser.role === 'admin' ? '/admin' : '/client', { replace: true })
+        navigate(res.data.role === 'admin' ? '/admin' : '/client', { replace: true })
       }
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -266,14 +289,21 @@ export function LoginRevisionPage() {
                   setTurnstileChecked(checked)
                   if (errors.captcha) setErrors((prev) => ({ ...prev, captcha: undefined }))
                 }}
+                onTurnstileToken={setTurnstileToken}
+                resetSignal={turnstileResetSignal}
                 error={errors.captcha}
               />
 
               <button
                 type="submit"
-                className="w-full rounded-full bg-teal py-3 text-[14px] font-semibold text-white transition-opacity hover:opacity-90"
+                disabled={isSubmitting}
+                className="w-full rounded-full bg-teal py-3 text-[14px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
               >
-                {loginMode === 'admin' ? 'Masuk ke Dashboard Admin' : 'Login'}
+                {isSubmitting
+                  ? 'Memverifikasi Kredensial...'
+                  : loginMode === 'admin'
+                    ? 'Masuk ke Dashboard Admin'
+                    : 'Login'}
               </button>
 
               {/* Q6: Stays visible per Figma 34, switches form to Admin Mode (still requires email/password/captcha) */}
@@ -490,6 +520,9 @@ export function RegisterRevisionPage() {
   const [captchaCode, setCaptchaCode] = useState(DEFAULT_CAPTCHA_CODE)
   const [captchaInput, setCaptchaInput] = useState('')
   const [turnstileChecked, setTurnstileChecked] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const [turnstileResetSignal, setTurnstileResetSignal] = useState(0)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [errors, setErrors] = useState<Record<string, string | undefined>>({})
 
   function clearFieldError(field: string) {
@@ -506,7 +539,10 @@ export function RegisterRevisionPage() {
     if (!lastName.trim()) next.lastName = 'Nama belakang wajib diisi.'
     if (!email.trim() || !isValidEmail(email)) {
       next.email = 'Masukkan alamat email yang valid.'
-    } else if (state.users.some((u) => u.email.toLowerCase() === email.trim().toLowerCase())) {
+    } else if (
+      !isBackendApiEnabled() &&
+      state.users.some((u) => u.email.toLowerCase() === email.trim().toLowerCase())
+    ) {
       next.email = 'Email ini sudah terdaftar. Silakan masuk melalui halaman Login.'
     }
     if (phone.trim().length < 8) {
@@ -537,8 +573,9 @@ export function RegisterRevisionPage() {
     setStep(3)
   }
 
-  function handleRegisterSubmit(e: React.FormEvent) {
+  async function handleRegisterSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (isSubmitting) return
     const next: Record<string, string | undefined> = {}
 
     if (password.length < 8) next.password = 'Password minimal 8 karakter.'
@@ -554,26 +591,35 @@ export function RegisterRevisionPage() {
       return
     }
 
-    const res = registerCustomer({
-      name: `${firstName.trim()} ${lastName.trim()}`,
-      email: email.trim(),
-      password,
-      phone: phone.trim(),
-      company: company.trim() || undefined,
-      address: address.trim(),
-      city: city.trim(),
-      postcode: postcode.trim(),
-      country,
-      turnstileToken: turnstileChecked ? 'turnstile-local-verified' : undefined,
-    })
+    setIsSubmitting(true)
+    try {
+      const res = await registerCustomer({
+        name: `${firstName.trim()} ${lastName.trim()}`,
+        email: email.trim(),
+        password,
+        phone: phone.trim(),
+        company: company.trim() || undefined,
+        address: address.trim(),
+        city: city.trim(),
+        postcode: postcode.trim(),
+        country,
+        turnstileToken: turnstileToken ?? (turnstileChecked ? 'turnstile-local-verified' : undefined),
+      })
 
-    if (!res.success) {
-      setErrors(res.errors ?? { email: res.message })
-      setStep(1)
-      return
+      if (!res.success) {
+        setTurnstileResetSignal((c) => c + 1)
+        const nextErrs = res.errors ?? { email: res.message }
+        setErrors(nextErrs)
+        if (nextErrs.email || nextErrs.name || nextErrs.phone) {
+          setStep(1)
+        }
+        return
+      }
+
+      navigate(redirectTo || '/client', { replace: true })
+    } finally {
+      setIsSubmitting(false)
     }
-
-    navigate(redirectTo || '/client', { replace: true })
   }
 
   const steps = [
@@ -943,22 +989,26 @@ export function RegisterRevisionPage() {
                     setTurnstileChecked(checked)
                     clearFieldError('captcha')
                   }}
+                  onTurnstileToken={setTurnstileToken}
+                  resetSignal={turnstileResetSignal}
                   error={errors.captcha}
                 />
 
                 <div className="flex flex-wrap items-center gap-3 pt-1">
                   <button
                     type="button"
+                    disabled={isSubmitting}
                     onClick={() => setStep(2)}
-                    className="rounded-full border border-border-soft bg-blush px-6 py-3 text-[13px] font-semibold text-teal hover:border-salmon"
+                    className="rounded-full border border-border-soft bg-blush px-6 py-3 text-[13px] font-semibold text-teal hover:border-salmon disabled:opacity-50"
                   >
                     ← Back
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 rounded-full bg-green-cta px-6 py-3 text-[14px] font-semibold text-white transition-colors hover:bg-green-cta-hover"
+                    disabled={isSubmitting}
+                    className="flex-1 rounded-full bg-green-cta px-6 py-3 text-[14px] font-semibold text-white transition-colors hover:bg-green-cta-hover disabled:cursor-not-allowed disabled:opacity-55"
                   >
-                    Register / Create Account
+                    {isSubmitting ? 'Membuat Akun...' : 'Register / Create Account'}
                   </button>
                 </div>
               </form>

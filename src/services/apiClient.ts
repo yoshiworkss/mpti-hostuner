@@ -1,8 +1,11 @@
 import type {
+  ActivityLog,
+  AnnouncementItem,
   ApiResponse,
   CartItem,
   HostingProduct,
   InvoiceRecord,
+  KnowledgebaseArticle,
   OrderRecord,
   StoreCategory,
   SupportTicketItem,
@@ -20,18 +23,23 @@ export function isBackendApiEnabled(): boolean {
   return BACKEND_API_BASE_URL.length > 0
 }
 
+export interface ApiResponseWithStatus<T> extends ApiResponse<T> {
+  httpStatus: number
+}
+
 /**
  * Standard JSON HTTP client aligned with 05_SRS Section 5 (NFR-05):
  * - Always sends `credentials: 'include'` for HttpOnly JWT cookies.
- * - Normalizes responses into `{ success, message, data, errors }`.
+ * - Normalizes responses into `{ success, message, data, errors, httpStatus }`.
  */
-export async function apiRequest<T>(
+export async function apiRequestWithStatus<T>(
   path: string,
   init: RequestInit = {}
-): Promise<ApiResponse<T>> {
+): Promise<ApiResponseWithStatus<T>> {
   if (!isBackendApiEnabled()) {
     return {
       success: false,
+      httpStatus: 0,
       message: 'VITE_API_BASE_URL belum dikonfigurasi. Aplikasi berjalan dalam mode data lokal.',
       data: null,
     }
@@ -54,6 +62,7 @@ export async function apiRequest<T>(
     if (!response.ok || !json || json.success === false) {
       return {
         success: false,
+        httpStatus: response.status,
         message: json?.message || `Permintaan gagal (HTTP ${response.status}).`,
         data: null,
         errors: json?.errors,
@@ -62,6 +71,7 @@ export async function apiRequest<T>(
 
     return {
       success: true,
+      httpStatus: response.status,
       message: json.message ?? 'OK',
       data: (json.data ?? null) as T | null,
       errors: json.errors,
@@ -69,10 +79,20 @@ export async function apiRequest<T>(
   } catch {
     return {
       success: false,
+      httpStatus: 503,
       message: 'Tidak dapat terhubung ke server API Hostuner. Periksa koneksi atau status server backend.',
       data: null,
     }
   }
+}
+
+export async function apiRequest<T>(
+  path: string,
+  init: RequestInit = {}
+): Promise<ApiResponse<T>> {
+  const { httpStatus: _status, ...rest } = await apiRequestWithStatus<T>(path, init)
+  void _status
+  return rest
 }
 
 export interface LoginApiPayload {
@@ -101,13 +121,23 @@ export interface CreateOrderApiPayload {
   includePpn11: boolean
 }
 
+export interface DomainCheckResult {
+  domain: string
+  available: boolean
+  tld: string
+  newPriceIdr: number
+  transferPriceIdr: number
+  renewalPriceIdr: number
+  note: string
+}
+
 /**
- * Typed REST API Endpoint Contract for Backend Handoff (Muhammad Hanif — Node.js + SQLite/PostgreSQL).
- * Matches 05_SRS (FR-01..FR-10) & 09_Skema_Database.sql (6 core tables + optional support endpoints).
+ * Typed REST API Endpoint Contract for Backend Handoff (Muhammad Hanif — Node.js + SQLite 3NF).
+ * Matches 05_SRS (FR-01..FR-10) & 02_BACKEND_API_AND_DATABASE_CONTRACT.md.
  */
 export const hostunerBackendApi = {
   auth: {
-    me: () => apiRequest<UserAccount>('/auth/me', { method: 'GET' }),
+    me: () => apiRequestWithStatus<UserAccount>('/auth/me', { method: 'GET' }),
     login: (payload: LoginApiPayload) =>
       apiRequest<UserAccount>('/auth/login', {
         method: 'POST',
@@ -127,12 +157,18 @@ export const hostunerBackendApi = {
         categorySlug ? `/products?category=${encodeURIComponent(categorySlug)}` : '/products',
         { method: 'GET' }
       ),
+    checkDomain: (domain: string) =>
+      apiRequest<DomainCheckResult>(`/domain/check?domain=${encodeURIComponent(domain)}`, {
+        method: 'GET',
+      }),
   },
   orders: {
     listMyOrders: () => apiRequest<OrderRecord[]>('/orders/me', { method: 'GET' }),
     listMyInvoices: () => apiRequest<InvoiceRecord[]>('/invoices/me', { method: 'GET' }),
     getInvoice: (invoiceNumber: string) =>
-      apiRequest<InvoiceRecord>(`/invoices/${encodeURIComponent(invoiceNumber)}`, { method: 'GET' }),
+      apiRequestWithStatus<InvoiceRecord>(`/invoices/${encodeURIComponent(invoiceNumber)}`, {
+        method: 'GET',
+      }),
     createOrder: (payload: CreateOrderApiPayload) =>
       apiRequest<InvoiceRecord>('/orders', {
         method: 'POST',
@@ -145,6 +181,25 @@ export const hostunerBackendApi = {
       apiRequest<SupportTicketItem>('/tickets', {
         method: 'POST',
         body: payload instanceof FormData ? payload : JSON.stringify(payload),
+      }),
+  },
+  content: {
+    listAnnouncements: () => apiRequest<AnnouncementItem[]>('/announcements', { method: 'GET' }),
+    createAnnouncement: (payload: { title: string; body: string }) =>
+      apiRequest<AnnouncementItem>('/admin/announcements', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    listKbArticles: () => apiRequest<KnowledgebaseArticle[]>('/kb', { method: 'GET' }),
+    createKbArticle: (payload: { categorySlug: 'hosting' | 'vps'; title: string; content: string }) =>
+      apiRequest<KnowledgebaseArticle>('/admin/kb', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    sendContactMessage: (payload: { name: string; email: string; subject: string; message: string }) =>
+      apiRequest<null>('/contact', {
+        method: 'POST',
+        body: JSON.stringify(payload),
       }),
   },
   admin: {
@@ -169,7 +224,9 @@ export const hostunerBackendApi = {
       ),
     deleteUser: (userId: number) =>
       apiRequest<null>(`/admin/users/${userId}`, { method: 'DELETE' }),
+    listInvoices: () => apiRequest<InvoiceRecord[]>('/admin/invoices', { method: 'GET' }),
     confirmInvoicePaid: (invoiceId: number) =>
       apiRequest<InvoiceRecord>(`/admin/invoices/${invoiceId}/pay`, { method: 'PATCH' }),
+    listLogs: () => apiRequest<ActivityLog[]>('/admin/logs', { method: 'GET' }),
   },
 }

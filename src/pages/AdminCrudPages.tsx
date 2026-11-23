@@ -52,6 +52,7 @@ export function AdminProductsPage() {
 
   const [form, setForm] = useState<ProductFormState>(EMPTY_PRODUCT_FORM)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [productToDelete, setProductToDelete] = useState<HostingProduct | null>(null)
@@ -82,8 +83,9 @@ export function AdminProductsPage() {
     setErrors({})
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
+    if (isSubmitting) return
     const nextErrors: Record<string, string> = {}
 
     const monthlyNum = Number(form.priceMonthly)
@@ -122,24 +124,33 @@ export function AdminProductsPage() {
       return
     }
 
-    saveProduct({
-      id: form.id,
-      categoryId: matchedCategory.id,
-      categorySlug: matchedCategory.slug,
-      name: form.name.trim(),
-      slug: buildSlug(form.name),
-      priceMonthly: Math.round(monthlyNum),
-      priceAnnual: Math.round(annualNum),
-      displayCycle: form.displayCycle,
-      diskSpace: form.diskSpace.trim(),
-      bandwidth: form.bandwidth.trim(),
-      specs: parsedSpecs,
-      isFreeDomain: form.isFreeDomain,
-      stockLabel: form.stockLabel.trim() || undefined,
-      isFeatured: form.isFeatured,
-    })
+    setIsSubmitting(true)
+    try {
+      const res = await saveProduct({
+        id: form.id,
+        categoryId: matchedCategory.id,
+        categorySlug: matchedCategory.slug,
+        name: form.name.trim(),
+        slug: buildSlug(form.name),
+        priceMonthly: Math.round(monthlyNum),
+        priceAnnual: Math.round(annualNum),
+        displayCycle: form.displayCycle,
+        diskSpace: form.diskSpace.trim(),
+        bandwidth: form.bandwidth.trim(),
+        specs: parsedSpecs,
+        isFreeDomain: form.isFreeDomain,
+        stockLabel: form.stockLabel.trim() || undefined,
+        isFeatured: form.isFeatured,
+      })
 
-    handleResetForm()
+      if (res.success) {
+        handleResetForm()
+      } else if (res.errors) {
+        setErrors(res.errors)
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const q = searchQuery.trim().toLowerCase()
@@ -521,7 +532,7 @@ export function AdminProductsPage() {
             if (form.id === productToDelete.id) {
               handleResetForm()
             }
-            deleteProduct(productToDelete.id)
+            void deleteProduct(productToDelete.id)
           }
           setProductToDelete(null)
         }}
@@ -558,6 +569,7 @@ export function AdminUsersPage() {
 
   const [form, setForm] = useState<UserFormState>(EMPTY_USER_FORM)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [roleFilter, setRoleFilter] = useState<'all' | 'customer' | 'admin'>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [userToDelete, setUserToDelete] = useState<UserAccount | null>(null)
@@ -583,8 +595,9 @@ export function AdminUsersPage() {
     setErrors({})
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
+    if (isSubmitting) return
     const nextErrors: Record<string, string> = {}
     const cleanEmail = form.email.trim().toLowerCase()
 
@@ -607,21 +620,30 @@ export function AdminUsersPage() {
 
     const existing = form.id ? state.users.find((u) => u.id === form.id) : undefined
 
-    saveUser({
-      id: form.id,
-      name: form.name.trim(),
-      email: form.email.trim(),
-      phone: form.phone.trim(),
-      company: form.company.trim() || undefined,
-      address: existing?.address,
-      city: existing?.city,
-      postcode: existing?.postcode,
-      country: existing?.country ?? 'Indonesia',
-      role: form.role,
-      status: form.status,
-    })
+    setIsSubmitting(true)
+    try {
+      const res = await saveUser({
+        id: form.id,
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        company: form.company.trim() || undefined,
+        address: existing?.address,
+        city: existing?.city,
+        postcode: existing?.postcode,
+        country: existing?.country ?? 'Indonesia',
+        role: form.role,
+        status: form.status,
+      })
 
-    handleResetForm()
+      if (res.success) {
+        handleResetForm()
+      } else if (res.errors) {
+        setErrors(res.errors)
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const q = searchQuery.trim().toLowerCase()
@@ -915,7 +937,7 @@ export function AdminUsersPage() {
             if (form.id === userToDelete.id) {
               handleResetForm()
             }
-            deleteUser(userToDelete.id)
+            void deleteUser(userToDelete.id)
           }
           setUserToDelete(null)
         }}

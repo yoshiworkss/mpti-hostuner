@@ -669,7 +669,7 @@ export function AdminPaymentsPage() {
         onCancel={() => setInvoiceToConfirm(null)}
         onConfirm={() => {
           if (invoiceToConfirm) {
-            markInvoicePaid(invoiceToConfirm.id)
+            void markInvoicePaid(invoiceToConfirm.id)
           }
           setInvoiceToConfirm(null)
         }}

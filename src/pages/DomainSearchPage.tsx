@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { FigmaIcon } from '../components/icons/FigmaIcon'
 import { StoreSidebar } from '../components/layout/HybridSidebar'
 import { PageShell } from '../components/layout/PageShell'
 import { BreadcrumbBackBar, FieldError, LoadingSkeleton } from '../components/ui/FeedbackStates'
 import { useHostuner } from '../context/useHostuner'
+import { hostunerBackendApi, isBackendApiEnabled } from '../services/apiClient'
 import { STATIC_DOMAIN_TLDS } from '../services/hostunerApi'
 
 const RESERVED_TAKEN_DOMAINS = new Set(['google.com', 'hostuner.com', 'facebook.com', 'example.com'])
@@ -75,9 +76,42 @@ export function DomainRegisterPage() {
 
   const [errorMsg, setErrorMsg] = useState<string | undefined>(undefined)
   const [isChecking, setIsChecking] = useState(false)
+  const [remoteAvailability, setRemoteAvailability] = useState<{
+    domain: string
+    available: boolean
+    newPriceIdr?: number
+  } | null>(null)
 
   const parsed = hasQuery ? parseDomainQuery(activeQuery) : null
-  const primaryTaken = parsed ? RESERVED_TAKEN_DOMAINS.has(parsed.primaryDomain) : false
+  const primaryDomain = parsed?.primaryDomain ?? ''
+
+  useEffect(() => {
+    if (!isBackendApiEnabled() || !primaryDomain) return
+    let active = true
+
+    async function checkRemoteDomain() {
+      const res = await hostunerBackendApi.catalog.checkDomain(primaryDomain)
+      if (!active) return
+      if (res.success && res.data) {
+        setRemoteAvailability({
+          domain: primaryDomain,
+          available: res.data.available,
+          newPriceIdr: res.data.newPriceIdr,
+        })
+      }
+    }
+
+    void checkRemoteDomain()
+    return () => {
+      active = false
+    }
+  }, [primaryDomain])
+
+  const primaryTaken = parsed
+    ? remoteAvailability?.domain === parsed.primaryDomain
+      ? !remoteAvailability.available
+      : RESERVED_TAKEN_DOMAINS.has(parsed.primaryDomain)
+    : false
 
   function handleSearchSubmit(e: React.FormEvent) {
     e.preventDefault()

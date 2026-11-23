@@ -1,17 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { PageShell } from '../components/layout/PageShell'
 import { RestrictedPageGate } from '../components/support/RestrictedPageGate'
-import { BreadcrumbBackBar, ConfirmModal } from '../components/ui/FeedbackStates'
+import { BreadcrumbBackBar, ConfirmModal, LoadingSkeleton } from '../components/ui/FeedbackStates'
 import { useHostuner } from '../context/useHostuner'
+import { hostunerBackendApi, isBackendApiEnabled } from '../services/apiClient'
 import { STATIC_QRIS_PAYMENT_METHOD } from '../services/hostunerRevisionStore'
+import type { InvoiceRecord } from '../types/hostuner'
 
 /**
- * Revision 3.1 Transparent Invoice Page (`/checkout/invoice/:invoiceNumber`, Figma 19B):
+ * Revision 3.2 Transparent Invoice Page (`/checkout/invoice/:invoiceNumber`, Figma 19B):
  * - Strictly Static QRIS payment (Q1) with Kode Unik Rp 128 preserved (Q2).
  * - Zero Bank Transfer / BCA / Mandiri / BNI / BRI references or `Salin No. Rek`.
+ * - Prioritizes live server invoice (`activeRemote?.invoice ?? localInvoice`) so Admin PAID updates reflect immediately.
+ * - Renders a clean loading skeleton while fetching from Backend to prevent a brief "Invoice Tidak Ditemukan" flash.
  * - Protected by authentication & ownership check (only invoice owner or Admin may view).
- * - Dev-only quick PAID verification gated behind `import.meta.env.DEV` (Q5).
  */
 export function QrisInvoicePage() {
   const { invoiceNumber } = useParams<{ invoiceNumber: string }>()
@@ -19,8 +22,39 @@ export function QrisInvoicePage() {
   const { state, role, currentUser, formatPrice, markInvoicePaid, showToast } = useHostuner()
 
   const [confirmPayModalOpen, setConfirmPayModalOpen] = useState(false)
+  const [remoteState, setRemoteState] = useState<{
+    param: string
+    status: 'idle' | 'loading' | 'ok' | 'forbidden' | 'not_found'
+    invoice: InvoiceRecord | null
+  }>({ param: '', status: 'idle', invoice: null })
+
   const isDev = import.meta.env.DEV
   const qrisImageUrl = import.meta.env.VITE_HOSTUNER_QRIS_IMAGE_URL as string | undefined
+  const normalizedParam = (invoiceNumber ?? '').replace(/^#/, '').trim().toLowerCase()
+
+  useEffect(() => {
+    if (!isBackendApiEnabled() || !normalizedParam || role === 'guest' || !currentUser) return
+    let active = true
+
+    async function fetchRemoteInvoice() {
+      const res = await hostunerBackendApi.orders.getInvoice(normalizedParam)
+      if (!active) return
+      if (res.success && res.data) {
+        setRemoteState({ param: normalizedParam, status: 'ok', invoice: res.data })
+      } else if (res.httpStatus === 403) {
+        setRemoteState({ param: normalizedParam, status: 'forbidden', invoice: null })
+      } else if (res.httpStatus === 404) {
+        setRemoteState({ param: normalizedParam, status: 'not_found', invoice: null })
+      } else {
+        setRemoteState({ param: normalizedParam, status: 'idle', invoice: null })
+      }
+    }
+
+    void fetchRemoteInvoice()
+    return () => {
+      active = false
+    }
+  }, [normalizedParam, role, currentUser])
 
   /* Block unauthenticated Guest access to prevent invoice PII exposure */
   if (role === 'guest' || !currentUser) {
@@ -36,8 +70,7 @@ export function QrisInvoicePage() {
     )
   }
 
-  const normalizedParam = (invoiceNumber ?? '').replace(/^#/, '').trim().toLowerCase()
-  const invoice =
+  const localInvoice =
     state.invoices.find((inv) => inv.invoiceNumber.toLowerCase() === normalizedParam) ??
     (normalizedParam === ''
       ? state.invoices.find(
@@ -45,8 +78,21 @@ export function QrisInvoicePage() {
         )
       : undefined)
 
+  const activeRemote = remoteState.param === normalizedParam ? remoteState : null
+  const isRemoteLoading =
+    isBackendApiEnabled() &&
+    Boolean(normalizedParam) &&
+    activeRemote === null &&
+    !localInvoice
+
+  // Prefer authoritative server invoice (`activeRemote?.invoice`) over cached localStorage (`localInvoice`)
+  const invoice = activeRemote?.invoice ?? localInvoice ?? undefined
+  const isForbidden =
+    activeRemote?.status === 'forbidden' ||
+    Boolean(invoice && role !== 'admin' && invoice.customerEmail.toLowerCase() !== currentUser.email.toLowerCase())
+
   /* Prevent horizontal privilege escalation across different customer accounts */
-  if (invoice && role !== 'admin' && invoice.customerEmail.toLowerCase() !== currentUser.email.toLowerCase()) {
+  if (isForbidden) {
     return (
       <PageShell>
         <div className="space-y-6">
@@ -88,7 +134,26 @@ export function QrisInvoicePage() {
     )
   }
 
-  if (!invoice) {
+  if (isRemoteLoading) {
+    return (
+      <PageShell>
+        <div className="space-y-6">
+          <BreadcrumbBackBar
+            backTo="/cart"
+            backLabel="← Back"
+            segments={[
+              { label: 'Portal Home', to: '/' },
+              { label: 'Shopping Cart', to: '/cart' },
+              { label: `Memuat Invoice #${invoiceNumber ?? ''}` },
+            ]}
+          />
+          <LoadingSkeleton variant="cards" count={2} />
+        </div>
+      </PageShell>
+    )
+  }
+
+  if (!invoice || activeRemote?.status === 'not_found') {
     return (
       <PageShell>
         <div className="space-y-6">
@@ -386,7 +451,11 @@ export function QrisInvoicePage() {
         onConfirm={() => {
           setConfirmPayModalOpen(false)
           if (isDev) {
-            markInvoicePaid(invoice.id)
+            void markInvoicePaid(invoice.id).then((res) => {
+              if (res.success && res.data) {
+                setRemoteState({ param: normalizedParam, status: 'ok', invoice: res.data })
+              }
+            })
           } else {
             navigate(`/tickets/open?invoice=${encodeURIComponent(invoice.invoiceNumber)}`)
           }

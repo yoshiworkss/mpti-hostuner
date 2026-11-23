@@ -1,0 +1,350 @@
+{
+  "info": {
+    "name": "MPTI Hostuner-25 Backend REST API (QRIS Statis + PPN 11% + Rp 128)",
+    "_postman_id": "a7f24c91-81d2-46c0-9b34-001122334455",
+    "description": "Koleksi Postman Resmi Pengujian Backend Hostuner-25 (Node.js + Express + SQLite 3NF). Mencakup skenario positif (200/201) dan skenario negatif/keamanan lengkap (400/401/403/404/409/422) untuk QA (Zidnii).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Auth & Turnstile (FR-01, FR-02, FR-08)",
+      "item": [
+        {
+          "name": "POST Login Customer (Budi Santoso)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"budi@sman1solo.sch.id\",\n  \"password\": \"Hostuner25!\",\n  \"roleHint\": \"customer\",\n  \"turnstileToken\": \"turnstile-local-verified\"\n}"
+            }
+          }
+        },
+        {
+          "name": "POST Login Admin (Super Administrator)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@hostuner.com\",\n  \"password\": \"Hostuner25!\",\n  \"roleHint\": \"admin\",\n  \"turnstileToken\": \"turnstile-local-verified\"\n}"
+            }
+          }
+        },
+        {
+          "name": "POST Register Customer Baru",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Pelanggan Baru UNS\",\n  \"email\": \"pelanggan.baru@uns.ac.id\",\n  \"password\": \"Hostuner25!\",\n  \"phone\": \"081234567890\",\n  \"company\": \"Universitas Sebelas Maret\",\n  \"city\": \"Surakarta\",\n  \"country\": \"Indonesia\",\n  \"turnstileToken\": \"turnstile-local-verified\"\n}"
+            }
+          }
+        },
+        {
+          "name": "GET Current User Session (/auth/me)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/auth/me"
+          }
+        },
+        {
+          "name": "POST Logout (/auth/logout)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Catalog & Domain Checker (FR-03, FR-04, FR-05)",
+      "item": [
+        {
+          "name": "GET 9 Store Categories (/categories)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/categories"
+          }
+        },
+        {
+          "name": "GET 15 Products (/products)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/products"
+          }
+        },
+        {
+          "name": "GET Domain Availability Check (/domain/check)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/domain/check?domain=sman1surakarta.sch.id"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Orders & QRIS Statis Invoices (FR-06, FR-07, FR-09)",
+      "item": [
+        {
+          "name": "POST Create Order Hosting + Free Domain Annual",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentMethodId\": \"qris-statis\",\n  \"includePpn11\": true,\n  \"items\": [\n    {\n      \"id\": \"item-1\",\n      \"type\": \"hosting_domain\",\n      \"productId\": 7,\n      \"productName\": \"Hosting Pro\",\n      \"domainName\": \"sman1surakarta.com\",\n      \"domainAction\": \"register\",\n      \"billingCycle\": \"annually\",\n      \"unitPriceIdr\": 360000,\n      \"subtotalIdr\": 360000\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "POST Create Order Domain-Only (productId: null)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentMethodId\": \"qris-statis\",\n  \"includePpn11\": true,\n  \"items\": [\n    {\n      \"id\": \"dom-1\",\n      \"type\": \"domain_only\",\n      \"domainName\": \"startupbarusolo.id\",\n      \"domainAction\": \"register\",\n      \"billingCycle\": \"annually\",\n      \"unitPriceIdr\": 215000,\n      \"subtotalIdr\": 215000\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "GET My Orders (/orders/me)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/orders/me"
+          }
+        },
+        {
+          "name": "GET My Invoices (/invoices/me)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/invoices/me"
+          }
+        },
+        {
+          "name": "GET Seed Invoice #INV-2026-0892 (/invoices/INV-2026-0892)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/invoices/INV-2026-0892"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Support Tickets & Contact Us",
+      "item": [
+        {
+          "name": "GET My Tickets (/tickets/me)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/tickets/me"
+          }
+        },
+        {
+          "name": "POST Create Payment Confirmation Ticket (/tickets)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tickets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"department\": \"Konfirmasi Pembayaran\",\n  \"subject\": \"Konfirmasi Pembayaran QRIS #INV-2026-0892\",\n  \"message\": \"Sudah bayar Rp 399.728 via QRIS Statis Hostuner.\",\n  \"invoiceNumber\": \"INV-2026-0892\"\n}"
+            }
+          }
+        },
+        {
+          "name": "POST Pre-Sales Contact Message (/contact)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/contact",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Calon Pelanggan Sekolah\",\n  \"email\": \"info@smkn2solo.sch.id\",\n  \"subject\": \"Tanya Persyaratan Domain .sch.id\",\n  \"message\": \"Apakah paket web sekolah sudah termasuk bantuan aktivasi domain .sch.id?\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Admin Portal (UC-05, UC-06, UC-08 — Wajib Role Admin)",
+      "item": [
+        {
+          "name": "GET All Users (/admin/users)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/admin/users"
+          }
+        },
+        {
+          "name": "GET All Invoices (/admin/invoices)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/admin/invoices"
+          }
+        },
+        {
+          "name": "PATCH Confirm Invoice PAID — UC-08 (/admin/invoices/1/pay)",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/admin/invoices/1/pay"
+          }
+        },
+        {
+          "name": "POST Create Product — UC-05 (/admin/products)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/admin/products",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categorySlug\": \"hosting-iix\",\n  \"name\": \"Hosting Bisnis IIX Ultra\",\n  \"priceMonthly\": 75000,\n  \"priceAnnual\": 765000,\n  \"displayCycle\": \"monthly\",\n  \"diskSpace\": \"5 GB NVMe\",\n  \"bandwidth\": \"Unmetered\",\n  \"specs\": [\"5 GB NVMe Space\", \"Unmetered Bandwidth\", \"Free Domain .com\"],\n  \"isFreeDomain\": true,\n  \"isFeatured\": true\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Negative & Security Test Scenarios (400 / 401 / 403 / 404 / 409 / 422)",
+      "item": [
+        {
+          "name": "[400] POST Login - Invalid Turnstile Token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"budi@sman1solo.sch.id\",\n  \"password\": \"Hostuner25!\",\n  \"turnstileToken\": \"INVALID_TURNSTILE_TOKEN\"\n}"
+            }
+          }
+        },
+        {
+          "name": "[400] DELETE Admin Self-Delete Protection (/admin/users/99)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/admin/users/99"
+          }
+        },
+        {
+          "name": "[401] POST Login - Wrong Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"budi@sman1solo.sch.id\",\n  \"password\": \"PasswordSalah123!\"\n}"
+            }
+          }
+        },
+        {
+          "name": "[401] GET /auth/me Without Cookie (Guest)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/auth/me"
+          }
+        },
+        {
+          "name": "[401] POST /tickets Without Login (Guest Blocked)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tickets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"department\": \"Support\",\n  \"subject\": \"Percobaan Tiket Guest\",\n  \"message\": \"Harus ditolak 401 karena belum login.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "[403] POST Login - Customer Trying Admin Mode (roleHint: admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"budi@sman1solo.sch.id\",\n  \"password\": \"Hostuner25!\",\n  \"roleHint\": \"admin\"\n}"
+            }
+          }
+        },
+        {
+          "name": "[403] GET Invoice Milik Pelanggan Lain (Horizontal Privilege Escalation Check)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/invoices/INV-2026-0892",
+            "description": "Login sebagai siti@bisniskami.co.id terlebih dahulu, lalu panggil endpoint ini. Server akan menolak dengan 403 Forbidden karena INV-2026-0892 milik Budi Santoso."
+          }
+        },
+        {
+          "name": "[403] GET /admin/users oleh Role Customer (Vertical Privilege Escalation Check)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/admin/users",
+            "description": "Login sebagai customer (budi@sman1solo.sch.id) terlebih dahulu, lalu panggil endpoint ini. Server akan menolak dengan 403 Forbidden."
+          }
+        },
+        {
+          "name": "[404] GET Unknown Invoice Number (/invoices/INV-9999-NOTFOUND)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/invoices/INV-9999-NOTFOUND"
+          }
+        },
+        {
+          "name": "[409] POST Register - Duplicate Email (budi@sman1solo.sch.id)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Duplikat Budi\",\n  \"email\": \"budi@sman1solo.sch.id\",\n  \"password\": \"Hostuner25!\",\n  \"phone\": \"081226008891\"\n}"
+            }
+          }
+        },
+        {
+          "name": "[409] DELETE Product Referenced by Order (/admin/products/7)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/admin/products/7"
+          }
+        },
+        {
+          "name": "[422] POST Order - Non-QRIS Bank Transfer Rejected (paymentMethodId: bca-va)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentMethodId\": \"bca-va\",\n  \"items\": [\n    {\n      \"type\": \"hosting_domain\",\n      \"productId\": 1,\n      \"domainName\": \"tesbank.com\",\n      \"billingCycle\": \"annually\"\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "[422] GET Domain Check - Invalid Domain Format",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/domain/check?domain=format_domain_salah"
+          }
+        }
+      ]
+    }
+  ]
+}
