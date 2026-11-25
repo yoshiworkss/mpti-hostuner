@@ -43,10 +43,10 @@ export function runSeed({ reset = false, db = getDb() } = {}) {
       `)
     }
 
-    // 1. Seed Users (idempotent via INSERT OR IGNORE + UPDATE profile)
+    // 1. Seed Users (idempotent via INSERT OR IGNORE + UPDATE profile; pre-verified for demo/admin accounts)
     const upsertUser = db.prepare(`
-      INSERT INTO users (id, name, email, password, role, phone, company, address, city, postcode, country, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO users (id, name, email, password, role, phone, company, address, city, postcode, country, status, email_verified, email_verified_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       ON CONFLICT(email) DO UPDATE SET
         name = excluded.name,
         role = excluded.role,
@@ -56,7 +56,9 @@ export function runSeed({ reset = false, db = getDb() } = {}) {
         city = excluded.city,
         postcode = excluded.postcode,
         country = excluded.country,
-        status = excluded.status
+        status = excluded.status,
+        email_verified = 1,
+        email_verified_at = COALESCE(users.email_verified_at, excluded.email_verified_at)
     `)
     for (const u of SEED_USERS) {
       upsertUser.run(
@@ -72,6 +74,7 @@ export function runSeed({ reset = false, db = getDb() } = {}) {
         u.postcode ?? null,
         u.country ?? 'Indonesia',
         u.status,
+        u.createdAt,
         u.createdAt
       )
     }

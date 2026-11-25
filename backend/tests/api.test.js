@@ -237,14 +237,76 @@ async function runAllTests() {
         },
       })
       assert.equal(newReg.status, 201)
+      assert.equal(newReg.cookie, null)
       assert.equal(newReg.json.data.role, 'customer')
+      assert.equal(newReg.json.data.emailVerified, false)
+      assert.equal(newReg.json.data.verificationRequired, true)
+      assert.ok(newReg.json.data.verificationPreviewUrl)
       assert.equal('password' in newReg.json.data, false)
       newCustomerId = newReg.json.data.id
 
-      // Verify password in SQLite is bcrypt-hashed
-      const dbRow = getDb().prepare(`SELECT password FROM users WHERE id = ?`).get(newCustomerId)
+      // Verify password in SQLite is bcrypt-hashed & account awaits email verification
+      const dbRow = getDb()
+        .prepare(`SELECT password, email_verified, verification_token FROM users WHERE id = ?`)
+        .get(newCustomerId)
       assert.ok(dbRow.password.startsWith('$2'))
-      recordPass('POST /api/auth/register creates customer with bcrypt-hashed password -> 201')
+      assert.equal(dbRow.email_verified, 0)
+      assert.ok(dbRow.verification_token && dbRow.verification_token.length >= 32)
+      recordPass('POST /api/auth/register creates unverified customer with bcrypt hash & verification token (no auto-login) -> 201')
+
+      // UC-04 EX-02: Login MUST be rejected (403 EMAIL_NOT_VERIFIED) before email verification
+      const unverifiedLogin = await request('/auth/login', {
+        method: 'POST',
+        body: { email: 'hanif.tester@student.uns.ac.id', password: 'Hostuner25!' },
+      })
+      assert.equal(unverifiedLogin.status, 403)
+      assert.equal(unverifiedLogin.json.errors?.code, 'EMAIL_NOT_VERIFIED')
+      recordPass('POST /api/auth/login blocks unverified account (UC-04 EX-02 / NF-02.7) -> 403')
+
+      // Invalid token rejected -> 400
+      const badTokenRes = await request('/auth/verify-email', {
+        method: 'POST',
+        body: { token: 'invalid-token-00000000000000000000' },
+      })
+      assert.equal(badTokenRes.status, 400)
+      recordPass('POST /api/auth/verify-email rejects invalid token -> 400')
+
+      // Resend verification rotates token cleanly -> 200
+      const resendRes = await request('/auth/resend-verification', {
+        method: 'POST',
+        body: { email: 'hanif.tester@student.uns.ac.id' },
+      })
+      assert.equal(resendRes.status, 200)
+      const rotatedPreviewUrl = resendRes.json.data.verificationPreviewUrl
+      const rotatedToken = new URL(rotatedPreviewUrl).searchParams.get('token')
+      assert.ok(rotatedToken && rotatedToken !== dbRow.verification_token)
+      recordPass('POST /api/auth/resend-verification rotates verification token -> 200')
+
+      // Verify email with valid token activates account -> 200
+      const verifyOk = await request('/auth/verify-email', {
+        method: 'POST',
+        body: { token: rotatedToken },
+      })
+      assert.equal(verifyOk.status, 200)
+      assert.equal(verifyOk.json.data.emailVerified, true)
+      assert.ok(verifyOk.json.data.emailVerifiedAt)
+
+      // Replay of used token must fail -> 400
+      const replayVerify = await request('/auth/verify-email', {
+        method: 'POST',
+        body: { token: rotatedToken },
+      })
+      assert.equal(replayVerify.status, 400)
+      recordPass('POST /api/auth/verify-email activates account & prevents token replay -> 200 / 400')
+
+      // Login now succeeds after email verification -> 200
+      const verifiedLogin = await request('/auth/login', {
+        method: 'POST',
+        body: { email: 'hanif.tester@student.uns.ac.id', password: 'Hostuner25!' },
+      })
+      assert.equal(verifiedLogin.status, 200)
+      assert.ok(verifiedLogin.cookie)
+      recordPass('POST /api/auth/login succeeds after email verification -> 200')
     }
 
     // 4. Seed Invoice #INV-2026-0892 & Strict Ownership Isolation
@@ -531,26 +593,38 @@ async function runAllTests() {
           email: 'raka.smoke@hostuner.test',
           phone: '081277788899',
           password: 'Hostuner25!',
-          companyOrSchool: 'SMK Negeri 5 Surakarta',
-          streetAddress: 'Jl. Adi Sucipto No. 42',
+          company: 'SMK Negeri 5 Surakarta',
+          address: 'Jl. Adi Sucipto No. 42',
           city: 'Surakarta',
-          province: 'Jawa Tengah',
-          postalCode: '57143',
+          postcode: '57143',
           country: 'Indonesia',
           turnstileToken: 'turnstile-local-verified',
         },
       })
       assert.equal(smokeRegister.status, 201)
-      const rakaFirstCookie = smokeRegister.cookie
-      assert.ok(rakaFirstCookie && rakaFirstCookie.includes('hostuner_token='))
+      assert.equal(smokeRegister.cookie, null)
+      assert.equal(smokeRegister.json.data.verificationRequired, true)
+      const rakaToken = new URL(smokeRegister.json.data.verificationPreviewUrl).searchParams.get('token')
+      assert.ok(rakaToken)
 
-      // Verify /api/auth/me returns full profile for bootstrapFromBackend merge into prev.users
-      const rakaMe = await request('/auth/me', { cookie: rakaFirstCookie })
-      assert.equal(rakaMe.status, 200)
-      assert.equal(rakaMe.json.data.email, 'raka.smoke@hostuner.test')
+      // Unverified login blocked -> 403
+      const rakaBlockedLogin = await request('/auth/login', {
+        method: 'POST',
+        body: {
+          email: 'raka.smoke@hostuner.test',
+          password: 'Hostuner25!',
+          turnstileToken: 'turnstile-local-verified',
+        },
+      })
+      assert.equal(rakaBlockedLogin.status, 403)
+      assert.equal(rakaBlockedLogin.json.errors?.code, 'EMAIL_NOT_VERIFIED')
 
-      // Logout & re-login as if from an incognito browser with zero local state
-      await request('/auth/logout', { method: 'POST', cookie: rakaFirstCookie })
+      // Verify email via GET /api/auth/verify-email?token=... -> 200
+      const rakaVerify = await request(`/auth/verify-email?token=${encodeURIComponent(rakaToken)}`)
+      assert.equal(rakaVerify.status, 200)
+      assert.equal(rakaVerify.json.data.emailVerified, true)
+
+      // Now login succeeds & issues HttpOnly cookie
       const rakaRelogin = await request('/auth/login', {
         method: 'POST',
         body: {
@@ -562,6 +636,12 @@ async function runAllTests() {
       assert.equal(rakaRelogin.status, 200)
       const rakaCookie = rakaRelogin.cookie
       assert.ok(rakaCookie && rakaCookie.includes('hostuner_token='))
+
+      // Verify /api/auth/me returns full profile for bootstrapFromBackend merge into prev.users
+      const rakaMe = await request('/auth/me', { cookie: rakaCookie })
+      assert.equal(rakaMe.status, 200)
+      assert.equal(rakaMe.json.data.email, 'raka.smoke@hostuner.test')
+      assert.equal(rakaMe.json.data.emailVerified, true)
 
       // Checkout Hosting + Domain order -> QRIS invoice
       const rakaCheckout = await request('/orders', {

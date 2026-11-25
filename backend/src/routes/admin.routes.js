@@ -310,8 +310,8 @@ router.post('/users', (req, res) => {
 
   const info = db
     .prepare(
-      `INSERT INTO users (name, email, password, role, phone, company, address, city, postcode, country, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO users (name, email, password, role, phone, company, address, city, postcode, country, status, email_verified, email_verified_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     )
     .run(
       cleanName,
@@ -325,6 +325,7 @@ router.post('/users', (req, res) => {
       postcode ? String(postcode).trim() : null,
       country ? String(country).trim() : 'Indonesia',
       cleanStatus,
+      createdAt,
       createdAt
     )
 

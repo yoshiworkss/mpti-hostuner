@@ -56,4 +56,13 @@ export const ENV = {
   PPN_RATE_PERCENT: 11,
   // Locked at Rp 128 per final decision (QRIS Statis verification code)
   UNIQUE_VERIFICATION_CODE_IDR: 128,
+  // Email Verification (RF-02.3, NF-02.7, UC-03, UC-04 EX-02)
+  APP_PUBLIC_URL: (process.env.APP_PUBLIC_URL || 'https://hostuner.yoshiworks.web.id').trim().replace(/\/+$/, ''),
+  SMTP_HOST: (process.env.SMTP_HOST || '').trim(),
+  SMTP_PORT: Number(process.env.SMTP_PORT || 587),
+  SMTP_SECURE: process.env.SMTP_SECURE === 'true',
+  SMTP_USER: (process.env.SMTP_USER || '').trim(),
+  SMTP_PASS: (process.env.SMTP_PASS || '').trim(),
+  SMTP_FROM: (process.env.SMTP_FROM || 'Hostuner Portal <no-reply@hostuner.yoshiworks.web.id>').trim(),
+  EMAIL_VERIFICATION_TTL_HOURS: Number(process.env.EMAIL_VERIFICATION_TTL_HOURS || 24),
 }

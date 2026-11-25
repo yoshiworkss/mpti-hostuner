@@ -43,6 +43,9 @@ const LoginRevisionPage = lazy(() =>
 const RegisterRevisionPage = lazy(() =>
   import('./pages/AuthRevisionPages').then((m) => ({ default: m.RegisterRevisionPage }))
 )
+const VerifyEmailPage = lazy(() =>
+  import('./pages/AuthRevisionPages').then((m) => ({ default: m.VerifyEmailPage }))
+)
 const PasswordResetRevisionPage = lazy(() =>
   import('./pages/AuthRevisionPages').then((m) => ({ default: m.PasswordResetRevisionPage }))
 )
@@ -147,6 +150,7 @@ export function App() {
             <Route path="/checkout/invoice/:invoiceNumber" element={<QrisInvoicePage />} />
             <Route path="/login" element={<LoginRevisionPage />} />
             <Route path="/register" element={<RegisterRevisionPage />} />
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
             <Route path="/password-reset" element={<PasswordResetRevisionPage />} />
 
             {/* Tahap 1 QA Workbench — DEV-only (Q5: stripped from production build) */}

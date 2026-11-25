@@ -12,6 +12,8 @@ export function mapUserRow(row) {
     role: row.role,
     phone: row.phone || '',
     status: row.status || 'ACTIVE',
+    emailVerified: Boolean(row.email_verified),
+    emailVerifiedAt: row.email_verified_at || null,
     createdAt: row.created_at,
   }
   if (row.company) dto.company = row.company

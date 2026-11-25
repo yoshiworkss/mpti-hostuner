@@ -8,6 +8,8 @@ import type {
   InvoiceRecord,
   LanguageCode,
   PaymentMethod,
+  RegisterResult,
+  ResendVerificationResult,
   SupportTicketItem,
   UserAccount,
   UserRole,
@@ -53,8 +55,14 @@ export interface HostunerContextValue {
     city?: string
     postcode?: string
     country?: string
+    redirectTo?: string
     turnstileToken?: string
-  }) => Promise<ApiResponse<UserAccount>>
+  }) => Promise<ApiResponse<RegisterResult>>
+  verifyEmailToken: (token: string) => Promise<ApiResponse<UserAccount>>
+  resendVerificationEmail: (
+    email: string,
+    redirectTo?: string
+  ) => Promise<ApiResponse<ResendVerificationResult>>
   logoutUser: () => void
 
   // Cart & Order Actions

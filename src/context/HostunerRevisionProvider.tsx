@@ -29,6 +29,8 @@ import type {
   LanguageCode,
   OrderRecord,
   PaymentMethod,
+  RegisterResult,
+  ResendVerificationResult,
   SupportTicketItem,
   UserAccount,
   UserRole,
@@ -293,6 +295,15 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
         email: 'Akun berstatus SUSPENDED.',
       })
     }
+    if (matched.emailVerified === false) {
+      return errorResponse(
+        'Akun Anda belum diverifikasi. Silakan buka tautan verifikasi pada email Anda terlebih dahulu sebelum login.',
+        {
+          email: 'Email belum diverifikasi. Silakan verifikasi email terlebih dahulu.',
+          code: 'EMAIL_NOT_VERIFIED',
+        }
+      )
+    }
 
     setRevState((prev) => {
       const merged = applyPendingItemAfterAuth(prev, matched.id)
@@ -336,8 +347,9 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
     city?: string
     postcode?: string
     country?: string
+    redirectTo?: string
     turnstileToken?: string
-  }): Promise<ApiResponse<UserAccount>> {
+  }): Promise<ApiResponse<RegisterResult>> {
     if (isBackendApiEnabled()) {
       const res = await hostunerBackendApi.auth.register({
         name: payload.name.trim(),
@@ -349,6 +361,7 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
         city: payload.city?.trim(),
         postcode: payload.postcode?.trim(),
         country: payload.country?.trim() || 'Indonesia',
+        redirectTo: payload.redirectTo,
         turnstileToken: payload.turnstileToken,
       })
 
@@ -357,21 +370,27 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
         return res
       }
 
-      const serverUser = res.data
-      await syncUserAndAdminDataFromBackend(serverUser, true)
-      showToast(`Pendaftaran berhasil! Selamat datang, ${serverUser.name}.`)
-      return okResponse('Registrasi berhasil.', serverUser)
+      const serverResult = res.data
+      if (serverResult.verificationRequired) {
+        showToast('Pendaftaran berhasil! Silakan verifikasi email Anda sebelum login.', 'info')
+        return okResponse(res.message, serverResult)
+      }
+
+      await syncUserAndAdminDataFromBackend(serverResult, true)
+      showToast(`Pendaftaran berhasil! Selamat datang, ${serverResult.name}.`)
+      return okResponse('Registrasi berhasil.', serverResult)
     }
 
-    // Fallback localStorage mode
-    if (revState.users.some((u) => u.email.toLowerCase() === payload.email.trim().toLowerCase())) {
+    // Fallback localStorage mode (simulates email verification flow RF-02.3 / UC-03)
+    const cleanEmail = payload.email.trim().toLowerCase()
+    if (revState.users.some((u) => u.email.toLowerCase() === cleanEmail)) {
       return errorResponse('Email sudah terdaftar.', { email: 'Gunakan email lain.' })
     }
 
     const newUser: UserAccount = {
       id: Date.now(),
       name: payload.name.trim(),
-      email: payload.email.trim(),
+      email: cleanEmail,
       phone: payload.phone.trim(),
       company: payload.company?.trim(),
       address: payload.address?.trim(),
@@ -380,26 +399,153 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
       country: payload.country?.trim() || 'Indonesia',
       role: 'customer',
       status: 'ACTIVE',
+      emailVerified: false,
+      emailVerifiedAt: null,
       createdAt: getNowTimestamp(),
     }
 
-    setRevState((prev) => {
-      const merged = applyPendingItemAfterAuth(prev, newUser.id)
-      return {
-        ...prev,
-        ...merged,
-        users: [...prev.users, newUser],
-        activeUserId: newUser.id,
-        logs: appendRevisionLog(
-          prev,
-          'user',
-          'REGISTER',
-          `${newUser.name} (${newUser.email}) mendaftar akun pelanggan baru`
-        ),
-      }
+    const localToken = `local-verify-${newUser.id}-${Math.random().toString(36).slice(2, 10)}`
+    try {
+      const mapRaw = localStorage.getItem('hostuner_local_verify_tokens')
+      const tokenMap = mapRaw ? (JSON.parse(mapRaw) as Record<string, string>) : {}
+      tokenMap[localToken] = cleanEmail
+      localStorage.setItem('hostuner_local_verify_tokens', JSON.stringify(tokenMap))
+    } catch {
+      // ignore storage errors
+    }
+
+    setRevState((prev) => ({
+      ...prev,
+      users: [...prev.users, newUser],
+      logs: appendRevisionLog(
+        prev,
+        'user',
+        'REGISTER',
+        `${newUser.name} (${newUser.email}) mendaftar akun baru (menunggu verifikasi email)`
+      ),
+    }))
+
+    const params = new URLSearchParams({ token: localToken })
+    if (payload.redirectTo) params.set('redirect', payload.redirectTo)
+    const previewUrl = `${window.location.origin}/verify-email?${params.toString()}`
+    showToast('Pendaftaran berhasil! Silakan verifikasi email Anda sebelum login.', 'info')
+    return okResponse('Registrasi berhasil. Silakan verifikasi email Anda sebelum login.', {
+      ...newUser,
+      verificationRequired: true,
+      deliveryMode: 'simulation',
+      verificationPreviewUrl: previewUrl,
     })
-    showToast(`Pendaftaran berhasil! Selamat datang, ${newUser.name}.`)
-    return okResponse('Registrasi berhasil.', newUser)
+  }
+
+  async function verifyEmailToken(token: string): Promise<ApiResponse<UserAccount>> {
+    const cleanToken = token.trim()
+    if (!cleanToken) {
+      return errorResponse('Token verifikasi tidak valid atau kosong.')
+    }
+
+    if (isBackendApiEnabled()) {
+      const res = await hostunerBackendApi.auth.verifyEmail(cleanToken)
+      if (res.success && res.data) {
+        const verifiedUser = res.data
+        setRevState((prev) => ({
+          ...prev,
+          users: prev.users.some((u) => u.id === verifiedUser.id)
+            ? prev.users.map((u) => (u.id === verifiedUser.id ? verifiedUser : u))
+            : [...prev.users, verifiedUser],
+        }))
+        showToast('Verifikasi email berhasil! Silakan login ke akun Anda.')
+      }
+      return res
+    }
+
+    // Fallback localStorage mode
+    let targetEmail: string | null = null
+    try {
+      const mapRaw = localStorage.getItem('hostuner_local_verify_tokens')
+      const tokenMap = mapRaw ? (JSON.parse(mapRaw) as Record<string, string>) : {}
+      targetEmail = tokenMap[cleanToken] ?? null
+      if (targetEmail) {
+        delete tokenMap[cleanToken]
+        localStorage.setItem('hostuner_local_verify_tokens', JSON.stringify(tokenMap))
+      }
+    } catch {
+      targetEmail = null
+    }
+
+    if (!targetEmail) {
+      return errorResponse('Token verifikasi email tidak valid atau sudah digunakan.')
+    }
+
+    const matched = revState.users.find((u) => u.email.toLowerCase() === targetEmail!.toLowerCase())
+    if (!matched) {
+      return errorResponse('Akun untuk token verifikasi ini tidak ditemukan.')
+    }
+
+    const verifiedUser: UserAccount = {
+      ...matched,
+      emailVerified: true,
+      emailVerifiedAt: getNowTimestamp(),
+    }
+    setRevState((prev) => ({
+      ...prev,
+      users: prev.users.map((u) => (u.id === verifiedUser.id ? verifiedUser : u)),
+      logs: appendRevisionLog(
+        prev,
+        'user',
+        'VERIFY',
+        `${verifiedUser.name} (${verifiedUser.email}) menyelesaikan verifikasi email`
+      ),
+    }))
+    showToast('Verifikasi email berhasil! Silakan login ke akun Anda.')
+    return okResponse('Verifikasi email berhasil! Akun Anda kini aktif, silakan login.', verifiedUser)
+  }
+
+  async function resendVerificationEmail(
+    email: string,
+    redirectTo?: string
+  ): Promise<ApiResponse<ResendVerificationResult>> {
+    const cleanEmail = email.trim().toLowerCase()
+    if (!cleanEmail) {
+      return errorResponse('Masukkan alamat email yang valid.')
+    }
+
+    if (isBackendApiEnabled()) {
+      const res = await hostunerBackendApi.auth.resendVerification({ email: cleanEmail, redirectTo })
+      if (res.success) {
+        showToast(res.message, 'info')
+      } else {
+        showToast(res.message, 'error')
+      }
+      return res
+    }
+
+    const matched = revState.users.find((u) => u.email.toLowerCase() === cleanEmail)
+    if (!matched) {
+      return errorResponse('Alamat email tidak terdaftar.')
+    }
+    if (matched.emailVerified !== false) {
+      return errorResponse('Akun dengan email ini sudah terverifikasi. Silakan langsung login.')
+    }
+
+    const localToken = `local-verify-${matched.id}-${Math.random().toString(36).slice(2, 10)}`
+    try {
+      const mapRaw = localStorage.getItem('hostuner_local_verify_tokens')
+      const tokenMap = mapRaw ? (JSON.parse(mapRaw) as Record<string, string>) : {}
+      tokenMap[localToken] = cleanEmail
+      localStorage.setItem('hostuner_local_verify_tokens', JSON.stringify(tokenMap))
+    } catch {
+      // ignore
+    }
+
+    const params = new URLSearchParams({ token: localToken })
+    if (redirectTo) params.set('redirect', redirectTo)
+    const previewUrl = `${window.location.origin}/verify-email?${params.toString()}`
+    showToast('Tautan verifikasi email baru telah dikirim.', 'info')
+    return okResponse('Tautan verifikasi email baru telah dikirim.', {
+      email: cleanEmail,
+      deliveryMode: 'simulation',
+      verificationPreviewUrl: previewUrl,
+    })
   }
 
   function logoutUser() {
@@ -1034,6 +1180,8 @@ export function HostunerRevisionProvider({ children }: { children: ReactNode }) 
         loginAsDemoCustomer,
         loginAsDemoAdmin,
         registerCustomer,
+        verifyEmailToken,
+        resendVerificationEmail,
         logoutUser,
         addToCart,
         updateCartItemCycle,

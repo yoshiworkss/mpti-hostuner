@@ -25,7 +25,21 @@ export interface UserAccount {
   postcode?: string
   country?: string
   status: 'ACTIVE' | 'SUSPENDED'
+  emailVerified?: boolean
+  emailVerifiedAt?: string | null
   createdAt: string
+}
+
+export interface RegisterResult extends UserAccount {
+  verificationRequired?: boolean
+  deliveryMode?: 'smtp' | 'simulation'
+  verificationPreviewUrl?: string | null
+}
+
+export interface ResendVerificationResult {
+  email: string
+  deliveryMode: 'smtp' | 'simulation'
+  verificationPreviewUrl?: string | null
 }
 
 export interface StoreCategory {

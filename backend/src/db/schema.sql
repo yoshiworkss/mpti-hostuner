@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS users (
     postcode VARCHAR(20),
     country VARCHAR(100) DEFAULT 'Indonesia',
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED')),
+    email_verified INTEGER NOT NULL DEFAULT 0 CHECK (email_verified IN (0, 1)),
+    email_verified_at VARCHAR(40),
+    verification_token VARCHAR(128),
+    verification_token_expires_at VARCHAR(40),
     created_at VARCHAR(40) NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M', 'now', 'localtime'))
 );
 

@@ -7,6 +7,8 @@ import type {
   InvoiceRecord,
   KnowledgebaseArticle,
   OrderRecord,
+  RegisterResult,
+  ResendVerificationResult,
   StoreCategory,
   SupportTicketItem,
   UserAccount,
@@ -112,6 +114,7 @@ export interface RegisterApiPayload {
   city?: string
   postcode?: string
   country?: string
+  redirectTo?: string
   turnstileToken?: string
 }
 
@@ -144,7 +147,17 @@ export const hostunerBackendApi = {
         body: JSON.stringify(payload),
       }),
     register: (payload: RegisterApiPayload) =>
-      apiRequest<UserAccount>('/auth/register', {
+      apiRequest<RegisterResult>('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    verifyEmail: (token: string) =>
+      apiRequest<UserAccount>('/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      }),
+    resendVerification: (payload: { email: string; redirectTo?: string }) =>
+      apiRequest<ResendVerificationResult>('/auth/resend-verification', {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
